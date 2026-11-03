@@ -1,0 +1,11 @@
+{
+  "title": "Basic integrals",
+  "cards": [
+    {"front": "$\\int x^n\\,dx$", "back": "$\\dfrac{x^{n+1}}{n+1} + C$  (for $n \\ne -1$)"},
+    {"front": "$\\int \\frac{1}{x}\\,dx$", "back": "$\\ln|x| + C$"},
+    {"front": "$\\int e^x\\,dx$", "back": "$e^x + C$"},
+    {"front": "$\\int \\cos x\\,dx$", "back": "$\\sin x + C$"},
+    {"front": "$\\int \\sin x\\,dx$", "back": "$-\\cos x + C$"},
+    {"front": "What does $\\int_a^b f(x)\\,dx$ measure?", "back": "The **signed area** between $f$ and the x-axis from $a$ to $b$."}
+  ]
+}

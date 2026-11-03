@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learning</title>
+<style>
+  :root {
+    --bg: #111318; --panel: #181b22; --panel-2: #1f232c; --line: #242a35; --text: #e6e6e6; --dim: #8b93a1;
+    --accent: #3ddc84; --accent-dim: rgba(61, 220, 132, .14); --bad: #ff6b6b; --warn: #f5c451; --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { padding: 16px; }
+  [hidden] { display: none !important; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); margin: 0 0 12px; font-weight: 700; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 0; }
+  .dim { color: var(--dim); }
+  .small { font-size: 12.5px; }
+  .mono { font-family: var(--mono); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; outline: none; min-width: 0; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 64px; width: 100%; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 7px 13px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b1a10; }
+  .btn.danger { color: var(--bad); }
+  .btn.danger:hover { border-color: var(--bad); }
+  .btn.sm { padding: 4px 9px; font-size: 12.5px; }
+  .hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    background: linear-gradient(120deg, rgba(61,220,132,.10), transparent 60%), var(--panel); }
+  .hero p { margin: 4px 0 0; color: var(--dim); }
+  .open-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent); color: #0b1a10; text-decoration: none; font-weight: 800; font-size: 16px; padding: 12px 20px; border-radius: 9px; }
+  .open-btn:hover { filter: brightness(1.08); }
+  .link-box { display: flex; gap: 6px; margin-top: 10px; max-width: 520px; }
+  .link-box input { flex: 1; font-family: var(--mono); font-size: 12.5px; color: var(--dim); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .stat b { display: block; font-size: 18px; margin-top: 2px; }
+  .ok { color: var(--accent); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  form.create { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  form.create label { display: grid; gap: 4px; font-size: 12.5px; color: var(--dim); font-weight: 600; }
+  form.create .full { grid-column: 1 / -1; }
+  @media (max-width: 520px) { form.create { grid-template-columns: 1fr; } }
+  .msg { min-height: 1.3em; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.disabled td { opacity: .55; }
+  tr.disabled td:last-child { opacity: 1; }
+  .table-wrap { overflow-x: auto; }
+  .who b { display: block; }
+  .bar { height: 6px; background: var(--bg); border-radius: 99px; overflow: hidden; width: 110px; margin-top: 4px; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .bar > div.mid { background: var(--warn); } .bar > div.high { background: var(--bad); }
+  .cap { width: 72px; }
+  .models-pop { position: relative; }
+  .models-pop summary { list-style: none; cursor: pointer; }
+  .models-pop summary::-webkit-details-marker { display: none; }
+  .models-pop .pop { position: absolute; z-index: 5; top: 100%; left: 0; margin-top: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 250px; display: grid; gap: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .models-pop label { display: flex; gap: 8px; align-items: center; font-size: 13px; white-space: nowrap; }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .actions { display: flex; gap: 5px; flex-wrap: wrap; }
+  .settings { display: grid; gap: 12px; }
+  .settings label.f { display: grid; gap: 4px; font-size: 12.5px; color: var(--dim); font-weight: 600; }
+  .blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+  .block { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .block b { font-family: var(--mono); font-size: 13px; }
+  .tag { font-size: 11px; border-radius: 99px; padding: 1px 7px; background: var(--accent-dim); color: var(--accent); margin-left: 6px; font-weight: 700; }
+  .empty { color: var(--dim); padding: 14px 0; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); padding: 9px 14px; border-radius: 8px; z-index: 20; }
+  .toast.err { border-color: var(--bad); color: var(--bad); }
+  .offline { background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.35); color: var(--bad); border-radius: var(--radius); padding: 10px 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="panel hero">
+    <div>
+      <h1>🌱 Learning Grounds</h1>
+      <p>A learning site where an AI teacher builds notes, quizzes, labs and mini apps for each learner.</p>
+      <div class="link-box">
+        <input id="site-link" readonly aria-label="Site link">
+        <button class="btn" id="copy-link" type="button">Copy link</button>
+      </div>
+    </div>
+    <a class="open-btn" id="open-site" target="_blank" rel="noopener">Open Learning Grounds ↗</a>
+  </section>
+
+  <div id="offline" class="offline" hidden></div>
+
+  <section class="stats">
+    <div class="stat"><span class="dim small">Anthropic API key</span><b id="st-key">…</b></div>
+    <div class="stat"><span class="dim small">Local models (Ollama)</span><b id="st-ollama">…</b></div>
+    <div class="stat"><span class="dim small">Learners</span><b id="st-users">…</b></div>
+    <div class="stat"><span class="dim small">Spent this month</span><b id="st-spent">…</b></div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <h2 style="margin:0">Learners</h2>
+      <span class="dim small" id="busy"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Learner</th><th>Teacher model</th><th>Allowed models</th><th>Monthly cap</th><th>This month</th><th>Chats</th><th></th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
+    <div id="no-users" class="empty" hidden>No accounts yet. Create one below.</div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Create account</h2>
+      <form class="create" id="create" autocomplete="off">
+        <label>Username<input name="name" required pattern="[a-z0-9][a-z0-9_-]{1,31}" placeholder="adam" autocapitalize="none" spellcheck="false" title="2-32 characters: a-z, 0-9, _ or -"></label>
+        <label>Password<input name="password" required minlength="6" placeholder="at least 6 characters" autocomplete="new-password"></label>
+        <label>Display name<input name="display" placeholder="Adam"></label>
+        <label>Monthly cap ($)<input name="cap" type="number" min="0" step="0.5" placeholder="5"></label>
+        <label class="full">Starting model<select name="model" id="create-model"></select></label>
+        <label class="full">About this learner (the teacher reads this)
+          <textarea name="about" placeholder="Age, language, what they already know, what they want. E.g. 11 years old, primary school, speaks Slovak and some English, likes space and Minecraft, knows multiplication."></textarea>
+        </label>
+        <div class="full row"><button class="btn primary" type="submit">Create account</button><span class="msg" id="create-msg"></span></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>API and defaults</h2>
+      <div class="settings">
+        <label class="f">Anthropic API key
+          <div class="row">
+            <input id="api-key" class="grow mono" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+            <button class="btn" id="save-key" type="button">Save</button>
+            <button class="btn" id="test-key" type="button">Test key</button>
+          </div>
+          <span class="dim small" id="key-info"></span>
+        </label>
+        <div class="row">
+          <label class="f grow">Default model for new learners<select id="def-model"></select></label>
+          <label class="f" style="width:130px">Default cap ($)<input id="def-cap" type="number" min="0" step="0.5"></label>
+        </div>
+        <label class="row" style="gap:10px"><input type="checkbox" id="web-search"> <span>Let Claude teachers search the web to check facts (about $0.01 per search)</span></label>
+        <div class="row"><button class="btn primary" id="save-defaults" type="button">Save defaults</button><span class="msg" id="set-msg"></span></div>
+        <div class="dim small" id="ollama-info"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Building blocks</h2>
+    <p class="dim small" style="margin:-6px 0 10px">Templates the teachers fill in. <span class="tag">new</span> marks ones a teacher saved for reuse.</p>
+    <div class="blocks" id="blocks"></div>
+  </section>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  const SITE = "https://devbox.tail20cc8f.ts.net/learn/";
+  const API = "/api/learning/";
+  const $ = (id) => document.getElementById(id);
+  let state = null;
+
+  function h(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") e.className = v;
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid.nodeType ? kid : String(kid));
+    return e;
+  }
+  function toast(msg, err) {
+    const t = $("toast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); t.hidden = false;
+    clearTimeout(toast.tm); toast.tm = setTimeout(() => { t.hidden = true; }, 3200);
+  }
+  async function call(route, body) {
+    const r = await fetch(API + route, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let d = null;
+    try { d = await r.json(); } catch (e) { /* not json */ }
+    if (!r.ok) throw new Error((d && (d.error || d.msg)) || "HTTP " + r.status);
+    return d;
+  }
+  async function act(route, body, okMsg) {
+    try {
+      const d = await call(route, body);
+      if (d && d.ok === false) { toast(d.msg || "failed", true); return d; }
+      toast(okMsg || (d && d.msg) || "saved");
+      await refresh();
+      return d;
+    } catch (e) { toast(e.message, true); return { ok: false, msg: e.message }; }
+  }
+  const money = (v) => "$" + (+v || 0).toFixed(2);
+  const modelLabel = (id) => { const m = state && state.models.find((x) => x.id === id); return m ? m.label : id; };
+
+  // ---- hero
+  $("site-link").value = SITE;
+  $("open-site").href = SITE;
+  $("copy-link").onclick = async () => {
+    try { await navigator.clipboard.writeText(SITE); toast("Link copied"); }
+    catch (e) { $("site-link").select(); document.execCommand("copy"); toast("Link copied"); }
+  };
+
+  // ---- render
+  function modelOptions(sel, value, only) {
+    const list = state.models.filter((m) => !only || only === "all" || only.includes(m.id));
+    sel.replaceChildren(...list.map((m) => h("option", { value: m.id, text: m.label })));
+    if (value) sel.value = value;
+  }
+
+  function render() {
+    const s = state;
+    $("offline").hidden = true;
+    $("st-key").innerHTML = "";
+    $("st-key").append(s.key ? h("span", { class: "ok", text: "set ✓" }) : h("span", { class: "warn", text: "not set" }));
+    $("st-ollama").innerHTML = "";
+    $("st-ollama").append(s.ollama ? h("span", { class: "ok", text: s.ollama.length + " model" + (s.ollama.length === 1 ? "" : "s") }) : h("span", { class: "warn", text: "not running" }));
+    $("st-users").textContent = s.users.length;
+    $("st-spent").textContent = money(s.users.reduce((a, u) => a + (+u.spent || 0), 0));
+    $("busy").textContent = s.busy && s.busy.length ? "Teaching right now: " + s.busy.join(", ") : "";
+
+    $("key-info").textContent = s.key ? "Saved key: " + s.key + "  (paste a new one to replace, or save empty to remove)" : "No key saved. Claude models can't teach until you add one.";
+    $("ollama-info").textContent = s.ollama
+      ? "Ollama is running with: " + (s.ollama.join(", ") || "no models pulled")
+      : "Ollama is not running, so the local (free) models won't answer. Start it in the Models tab.";
+
+    // don't clobber what the admin is typing
+    const settingsBusy = document.activeElement && document.activeElement.closest(".settings");
+    if (!settingsBusy) {
+      modelOptions($("def-model"), s.config.default_model);
+      $("def-cap").value = s.config.default_cap_usd;
+      $("web-search").checked = !!s.config.web_search;
+    }
+    const cm = $("create-model");
+    if (document.activeElement !== cm) { const v = cm.value || s.config.default_model; modelOptions(cm, v); }
+    if (!$("create").cap.value && document.activeElement !== $("create").cap) $("create").cap.placeholder = s.config.default_cap_usd;
+
+    const tbody = $("users");
+    const tableBusy = document.activeElement && tbody.contains(document.activeElement) && document.activeElement.tagName !== "BUTTON";
+    const openPop = tbody.querySelector("details[open]");
+    if (!tableBusy && !openPop) {
+      tbody.replaceChildren(...s.users.map(userRow));
+    }
+    $("no-users").hidden = s.users.length > 0;
+
+    const bl = $("blocks");
+    bl.replaceChildren(...(s.blocks || []).map((b) => h("div", { class: "block" },
+      h("div", {}, h("b", { text: b.name }), b.contributed ? h("span", { class: "tag", text: "new" }) : null),
+      h("div", { class: "dim small mono", text: b.file }),
+      h("div", { class: "small", text: b.summary }))));
+    if (!(s.blocks || []).length) bl.append(h("div", { class: "empty", text: "No blocks found." }));
+  }
+
+  function userRow(u) {
+    const tr = h("tr", { class: u.disabled ? "disabled" : "" });
+    const who = h("td", { class: "who" }, h("b", { text: u.display || u.name }), h("span", { class: "dim small mono", text: u.name }));
+    if (u.about) who.title = u.about;
+
+    const allowed = u.models === "all" ? "all" : (u.models || []);
+    const msel = h("select", { "aria-label": "Teacher model for " + u.name });
+    modelOptions(msel, u.model, allowed);
+    msel.onchange = () => act("user/update", { name: u.name, model: msel.value }, (u.display || u.name) + " now uses " + modelLabel(msel.value));
+
+    // allowed models checklist
+    const det = h("details", { class: "models-pop" });
+    const summary = h("summary", { class: "btn sm", text: allowed === "all" ? "All models" : allowed.length + " of " + state.models.length });
+    const pop = h("div", { class: "pop" });
+    const allBox = h("input", { type: "checkbox" }); allBox.checked = allowed === "all";
+    const boxes = state.models.map((m) => {
+      const c = h("input", { type: "checkbox", value: m.id });
+      c.checked = allowed === "all" || allowed.includes(m.id);
+      c.disabled = allowed === "all";
+      return [c, h("label", {}, c, m.label)];
+    });
+    allBox.onchange = () => boxes.forEach(([c]) => { c.disabled = allBox.checked; if (allBox.checked) c.checked = true; });
+    const saveBtn = h("button", { class: "btn primary sm", type: "button", text: "Save" });
+    saveBtn.onclick = async () => {
+      const models = allBox.checked ? "all" : boxes.filter(([c]) => c.checked).map(([c]) => c.value);
+      if (models !== "all" && !models.length) { toast("Pick at least one model", true); return; }
+      det.open = false;
+      const body = { name: u.name, models };
+      if (models !== "all" && !models.includes(u.model)) body.model = models[0];
+      await act("user/update", body, "Allowed models saved");
+    };
+    pop.append(h("label", { style: "font-weight:700" }, allBox, "All models (including new ones)"), ...boxes.map((b) => b[1]), h("div", { class: "row", style: "margin-top:4px" }, saveBtn));
+    det.append(summary, pop);
+    det.addEventListener("toggle", () => {
+      if (!det.open) return;
+      const r = summary.getBoundingClientRect();
+      pop.style.position = "fixed";
+      pop.style.left = Math.max(8, Math.min(innerWidth - 270, r.left)) + "px";
+      pop.style.top = r.bottom + 4 + "px";
+    });
+
+    const cap = h("input", { class: "cap", type: "number", min: "0", step: "0.5", value: u.cap, "aria-label": "Monthly cap for " + u.name });
+    const saveCap = () => { if (+cap.value !== +u.cap && cap.value !== "") act("user/update", { name: u.name, cap: +cap.value }, "Cap saved: " + money(cap.value)); };
+    cap.onchange = saveCap;
+    cap.onkeydown = (e) => { if (e.key === "Enter") cap.blur(); };
+
+    const frac = u.cap > 0 ? Math.min(1, u.spent / u.cap) : (u.spent > 0 ? 1 : 0);
+    const spend = h("td", {}, h("span", { class: "mono", text: money(u.spent) + " / " + money(u.cap) }),
+      h("div", { class: "bar" }, h("div", { class: frac > .9 ? "high" : frac > .6 ? "mid" : "", style: "width:" + (frac * 100) + "%" })));
+
+    const actions = h("div", { class: "actions" },
+      h("button", { class: "btn sm", type: "button", text: u.disabled ? "Enable" : "Disable",
+        onclick: () => act("user/update", { name: u.name, disabled: !u.disabled }, (u.display || u.name) + (u.disabled ? " enabled" : " disabled")) }),
+      h("button", { class: "btn sm", type: "button", text: "Edit about",
+        onclick: () => { const v = prompt("About " + (u.display || u.name) + " (the teacher reads this):", u.about || ""); if (v != null) act("user/update", { name: u.name, about: v }, "Saved"); } }),
+      h("button", { class: "btn sm", type: "button", text: "Reset password",
+        onclick: () => { const v = prompt("New password for " + u.name + " (at least 6 characters):"); if (v) act("user/password", { name: u.name, password: v }); } }),
+      h("button", { class: "btn sm danger", type: "button", text: "Delete",
+        onclick: () => { if (confirm("Delete " + u.name + "? Their files move to the trash folder on the devbox.")) act("user/delete", { name: u.name }); } }));
+
+    tr.append(who, h("td", {}, msel), h("td", {}, det), h("td", {}, h("span", { class: "dim" }, "$ "), cap), spend,
+      h("td", { class: "mono", text: u.chats }), h("td", {}, actions));
+    return tr;
+  }
+
+  // ---- forms
+  $("create").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const body = { name: f.name.value.trim().toLowerCase(), password: f.password.value, display: f.display.value.trim(),
+      about: f.about.value.trim(), model: f.model.value };
+    if (f.cap.value !== "") body.cap = +f.cap.value;
+    $("create-msg").textContent = "";
+    const d = await act("user/create", body);
+    if (d && d.ok) {
+      $("create-msg").className = "msg ok";
+      $("create-msg").textContent = "Created. Log in at the site with \"" + body.name + "\" and the password you set.";
+      f.reset();
+    } else if (d) {
+      $("create-msg").className = "msg bad";
+      $("create-msg").textContent = d.msg || "failed";
+    }
+  };
+  $("save-key").onclick = async () => {
+    const k = $("api-key").value.trim();
+    if (!k && state && state.key && !confirm("Remove the saved API key?")) return;
+    const d = await act("config", { api_key: k }, k ? "API key saved" : "API key removed");
+    if (d && d.ok !== false) $("api-key").value = "";
+  };
+  $("test-key").onclick = async () => {
+    $("test-key").disabled = true;
+    try {
+      const d = await call("test_key", {});
+      toast(d.msg, !d.ok);
+    } catch (e) { toast(e.message, true); }
+    $("test-key").disabled = false;
+  };
+  $("save-defaults").onclick = () => act("config", { default_model: $("def-model").value, default_cap: +$("def-cap").value, web_search: $("web-search").checked }, "Defaults saved");
+
+  // ---- refresh loop
+  async function refresh() {
+    try {
+      state = await call("state");
+      render();
+    } catch (e) {
+      const o = $("offline");
+      o.hidden = false;
+      o.textContent = "Can't reach the learning server (" + e.message + "). Is the learning-grounds service running on the devbox?";
+    }
+  }
+  refresh();
+  setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+  document.addEventListener("pointerdown", (e) => { document.querySelectorAll("details.models-pop[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; }); });
+  addEventListener("scroll", () => document.querySelectorAll("details.models-pop[open]").forEach((d) => { d.open = false; }), true);
+})();
+</script>
+</body>
+</html>
