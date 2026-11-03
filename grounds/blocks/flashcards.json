@@ -1,0 +1,6 @@
+{
+ "summary": "A flip-card deck for memorising facts, formulas or vocabulary, with shuffle and know/again repetition.",
+ "file": "*.flash.json",
+ "how_to_use": "JSON object:\n{\"title\": string, \"cards\": [{\"front\": markdown, \"back\": markdown}]}\n- Fronts are short prompts (a term, a formula to complete, a word to translate). Backs are the answer plus at most one line of why.\n- Markdown and $LaTeX$ work on both sides (double the backslashes in JSON).\n- The learner taps to flip, then presses \"Again\" (card comes back soon) or \"I knew it\". When the deck is done they can tell you.\n- 6-25 cards per deck; split bigger sets by subtopic.",
+ "example": "{\n  \"title\": \"Basic integrals\",\n  \"cards\": [\n    {\"front\": \"$\\\\int x^n\\\\,dx$\", \"back\": \"$\\\\dfrac{x^{n+1}}{n+1} + C$  (for $n \\\\ne -1$)\"},\n    {\"front\": \"$\\\\int \\\\frac{1}{x}\\\\,dx$\", \"back\": \"$\\\\ln|x| + C$\"},\n    {\"front\": \"$\\\\int e^x\\\\,dx$\", \"back\": \"$e^x + C$\"},\n    {\"front\": \"$\\\\int \\\\cos x\\\\,dx$\", \"back\": \"$\\\\sin x + C$\"},\n    {\"front\": \"$\\\\int \\\\sin x\\\\,dx$\", \"back\": \"$-\\\\cos x + C$\"},\n    {\"front\": \"What does $\\\\int_a^b f(x)\\\\,dx$ measure?\", \"back\": \"The **signed area** between $f$ and the x-axis from $a$ to $b$.\"}\n  ]\n}\n"
+}

@@ -1,0 +1,790 @@
+/* Learning Grounds app shell: login, topics tree, reader tabs, chat.
+ * Renderers live in render.js (window.LG). Every URL is relative because the
+ * site is served under /learn/ behind Tailscale Funnel. */
+(function () {
+  "use strict";
+  const LG = window.LG;
+  const h = LG.h;
+  const $ = (id) => document.getElementById(id);
+
+  const S = {
+    me: null,
+    tree: [],
+    paths: new Map(),        // path -> node
+    open: [],                // open tab paths
+    active: null,
+    cache: new Map(),        // path -> text
+    editing: false,
+    collapsed: new Set(),
+    chats: [],
+    chatId: null,
+    busy: false,
+    pane: "chat",
+  };
+  const mobile = () => matchMedia("(max-width: 900px)").matches;
+
+  // ---- storage (per-viewer conveniences only) ---------------------------------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("lg-" + (S.me ? S.me.user + "-" : "") + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem("lg-" + (S.me ? S.me.user + "-" : "") + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+  };
+
+  // ---- api ----------------------------------------------------------------------
+  async function api(path, body) {
+    const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    const r = await fetch(path, Object.assign({ credentials: "same-origin" }, opt));
+    if (r.status === 401) { showLogin(); throw new Error("Please log in again."); }
+    const ct = r.headers.get("Content-Type") || "";
+    const data = ct.includes("json") ? await r.json() : await r.text();
+    if (!r.ok) throw new Error((data && data.error) || "Request failed (" + r.status + ")");
+    return data;
+  }
+
+  function toast(msg, ms) {
+    const t = $("toast");
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toast.tm);
+    toast.tm = setTimeout(() => { t.hidden = true; }, ms || 2600);
+  }
+
+  // ---- modal + menu ---------------------------------------------------------------
+  function ask(o) {
+    return new Promise((res) => {
+      const m = $("modal"), inp = $("modal-input");
+      $("modal-title").textContent = o.title || "";
+      $("modal-text").textContent = o.text || "";
+      $("modal-text").hidden = !o.text;
+      inp.hidden = o.input === false;
+      inp.value = o.value || "";
+      inp.placeholder = o.placeholder || "";
+      $("modal-ok").textContent = o.ok || "OK";
+      $("modal-ok").className = "btn " + (o.danger ? "danger" : "primary");
+      m.hidden = false;
+      setTimeout(() => { if (!inp.hidden) { inp.focus(); const dot = inp.value.indexOf("."); inp.setSelectionRange(0, dot > 0 ? dot : inp.value.length); } else $("modal-ok").focus(); }, 30);
+      const done = (v) => { m.hidden = true; $("modal-card").onsubmit = null; $("modal-cancel").onclick = null; m.onclick = null; document.removeEventListener("keydown", esc); res(v); };
+      const esc = (e) => { if (e.key === "Escape") done(null); };
+      document.addEventListener("keydown", esc);
+      $("modal-card").onsubmit = (e) => { e.preventDefault(); done(o.input === false ? true : inp.value.trim() || null); };
+      $("modal-cancel").onclick = () => done(null);
+      m.onclick = (e) => { if (e.target === m) done(null); };
+    });
+  }
+
+  function menu(anchor, items) {
+    const m = $("menu");
+    m.replaceChildren(...items.map((it) => h("button", { class: it.danger ? "danger" : "", onclick: () => { m.hidden = true; it.fn(); } }, it.label)));
+    m.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const w = m.offsetWidth, hh = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+    m.style.top = (r.bottom + hh + 8 > innerHeight ? Math.max(8, r.top - hh - 4) : r.bottom + 4) + "px";
+  }
+  document.addEventListener("pointerdown", (e) => { const m = $("menu"); if (!m.hidden && !m.contains(e.target)) m.hidden = true; });
+
+  // ---- theme ---------------------------------------------------------------------
+  const THEMES = ["auto", "light", "dark"];
+  function applyTheme() {
+    const t = (() => { try { return localStorage.getItem("lg-theme") || "auto"; } catch (e) { return "auto"; } })();
+    if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    $("theme-btn").textContent = t === "auto" ? "🌓" : t === "light" ? "☀️" : "🌙";
+    $("theme-btn").title = "Theme: " + t + " (click to change)";
+    const dark = LG.isDark();
+    $("hl-dark").disabled = !dark; $("hl-light").disabled = dark;
+    LG.redrawPlots();
+  }
+  $("theme-btn").onclick = () => {
+    let t; try { t = localStorage.getItem("lg-theme") || "auto"; } catch (e) { t = "auto"; }
+    t = THEMES[(THEMES.indexOf(t) + 1) % 3];
+    try { localStorage.setItem("lg-theme", t); } catch (e) { /* ignore */ }
+    applyTheme();
+  };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
+  // ---- login ----------------------------------------------------------------------
+  function showLogin() {
+    $("boot").hidden = true; $("app").hidden = true; $("login").hidden = false;
+    setTimeout(() => $("login-user").focus(), 50);
+  }
+  $("login-form").onsubmit = async (e) => {
+    e.preventDefault();
+    $("login-err").textContent = "";
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      const r = await fetch("api/login", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin",
+        body: JSON.stringify({ user: $("login-user").value.trim().toLowerCase(), pass: $("login-pass").value }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Could not log in.");
+      $("login-pass").value = "";
+      await boot();
+    } catch (err) {
+      $("login-err").textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  $("logout-btn").onclick = async () => {
+    try { await fetch("api/logout", { method: "POST", credentials: "same-origin" }); } catch (e) { /* ignore */ }
+    S.me = null; S.cache.clear(); S.open = []; S.active = null; S.chatId = null;
+    $("messages").replaceChildren(); $("reader").replaceChildren(); $("tabs").replaceChildren();
+    showLogin();
+  };
+
+  // ---- panes (mobile) -------------------------------------------------------------
+  function setPane(p) {
+    S.pane = p;
+    $("app").dataset.pane = p;
+    document.querySelectorAll("#bottom-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.pane === p));
+    if (p === "reader") document.querySelector("#bottom-tabs .dot").hidden = true;
+    if (p === "reader" || p === "chat") setTimeout(LG.redrawPlots, 0);
+  }
+  document.querySelectorAll("#bottom-tabs button").forEach((b) => { b.onclick = () => setPane(b.dataset.pane); });
+
+  // ---- tree -----------------------------------------------------------------------
+  const TOPIC_COLORS = ["#5b5bd6", "#e5484d", "#12a594", "#f76b15", "#8e4ec6", "#0090ff", "#d6409f", "#978365", "#30a46c"];
+  function topicColor(name) { let x = 0; for (const c of name) x = (x * 31 + c.charCodeAt(0)) >>> 0; return TOPIC_COLORS[x % TOPIC_COLORS.length]; }
+  function topicGlyph(name) { const ch = [...name.replace(/^[^\p{L}\p{N}]+/u, "")][0] || name[0] || "?"; return ch.toUpperCase(); }
+
+  async function loadTree() {
+    const d = await api("api/tree");
+    S.tree = d.tree || [];
+    S.paths.clear();
+    const walk = (ns) => ns.forEach((n) => { S.paths.set(n.path, n); if (n.children) walk(n.children); });
+    walk(S.tree);
+    drawTree();
+  }
+
+  function drawTree(flashPath) {
+    const root = $("tree");
+    root.replaceChildren();
+    const topics = S.tree.filter((n) => n.dir);
+    const loose = S.tree.filter((n) => !n.dir);
+    if (!S.tree.length) {
+      root.append(h("div", { class: "tree-empty" }, "Nothing here yet. Ask your teacher in the chat what you want to learn, and your topics will appear here. Or press ", h("b", { text: "+ Topic" }), "."));
+      return;
+    }
+    for (const t of topics) {
+      const sec = h("div", { class: "topic" + (S.collapsed.has(t.path) ? " collapsed" : ""), role: "treeitem" });
+      const more = h("button", { class: "more", title: "More", "aria-label": "More actions for " + t.name, onclick: (e) => { e.stopPropagation(); folderMenu(e.currentTarget, t, true); } }, "⋯");
+      const head = h("div", { class: "topic-head", tabindex: "0" },
+        h("span", { class: "caret", text: "▾" }),
+        h("span", { class: "topic-badge", style: "background:" + topicColor(t.name), text: topicGlyph(t.name) }),
+        h("span", { class: "topic-name", text: t.name, title: t.name }), more);
+      const toggle = () => { toggleCollapsed(t.path); sec.classList.toggle("collapsed"); };
+      head.onclick = toggle;
+      head.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+      const kids = h("div", { class: "children" });
+      drawNodes(t.children || [], kids, flashPath);
+      if (!(t.children || []).length) kids.append(h("div", { class: "muted small", style: "padding:4px 8px", text: "(empty)" }));
+      sec.append(head, kids);
+      root.append(sec);
+    }
+    if (loose.length) {
+      const sec = h("div", { class: "topic" + (S.collapsed.has("") ? " collapsed" : "") });
+      const head = h("div", { class: "topic-head" }, h("span", { class: "caret", text: "▾" }),
+        h("span", { class: "topic-badge", style: "background:#8b8b9e", text: "…" }), h("span", { class: "topic-name", text: "Other files" }));
+      head.onclick = () => { toggleCollapsed(""); sec.classList.toggle("collapsed"); };
+      const kids = h("div", { class: "children" });
+      drawNodes(loose, kids, flashPath);
+      sec.append(head, kids);
+      root.append(sec);
+    }
+  }
+  function toggleCollapsed(p) {
+    if (S.collapsed.has(p)) S.collapsed.delete(p); else S.collapsed.add(p);
+    store.set("collapsed", [...S.collapsed]);
+  }
+  function drawNodes(nodes, host, flashPath) {
+    for (const n of nodes) {
+      if (n.dir) {
+        const wrap = h("div", { class: S.collapsed.has(n.path) ? "collapsed" : "" });
+        const row = h("div", { class: "node-row", tabindex: "0", title: n.path },
+          h("span", { class: "caret", text: "▾" }), h("span", { class: "ico", text: "📁" }), h("span", { class: "label", text: n.name }),
+          h("button", { class: "more", "aria-label": "More actions", onclick: (e) => { e.stopPropagation(); folderMenu(e.currentTarget, n); } }, "⋯"));
+        row.onclick = () => { toggleCollapsed(n.path); wrap.classList.toggle("collapsed"); };
+        const kids = h("div", { class: "children" });
+        drawNodes(n.children || [], kids, flashPath);
+        wrap.append(row, kids);
+        host.append(wrap);
+      } else {
+        const kind = LG.kindOf(n.path);
+        const row = h("div", { class: "node-row" + (S.active === n.path ? " active" : "") + (flashPath === n.path ? " flash-new" : ""), tabindex: "0", title: n.path, "data-path": n.path },
+          h("span", { class: "caret" }), h("span", { class: "ico", text: LG.ICON[kind] || "📄" }), h("span", { class: "label", text: prettyName(n.name) }),
+          h("button", { class: "more", "aria-label": "More actions", onclick: (e) => { e.stopPropagation(); fileMenu(e.currentTarget, n); } }, "⋯"));
+        row.onclick = () => { openFile(n.path); if (mobile()) setPane("reader"); };
+        row.onkeydown = (e) => { if (e.key === "Enter") row.onclick(); };
+        host.append(row);
+      }
+    }
+  }
+  function prettyName(name) {
+    return name.replace(/\.(quiz|flash|flashcards|plot|lab)\.json$/i, "").replace(/\.(md|markdown|html?)$/i, "");
+  }
+  function parentOf(p) { return LG.dirOf(p); }
+  function join(a, b) { return a ? a + "/" + b : b; }
+
+  function folderMenu(btn, n, isTopic) {
+    menu(btn, [
+      { label: "📝 New file here", fn: () => newFile(n.path) },
+      { label: "📁 New folder here", fn: () => newFolder(n.path) },
+      { label: "✏️ Rename", fn: () => renamePath(n) },
+      { label: "🗑 Delete" + (isTopic ? " topic" : " folder"), danger: true, fn: () => deletePath(n) },
+    ]);
+  }
+  function fileMenu(btn, n) {
+    menu(btn, [
+      { label: "📖 Open", fn: () => openFile(n.path) },
+      { label: "✏️ Rename", fn: () => renamePath(n) },
+      { label: "🗑 Delete", danger: true, fn: () => deletePath(n) },
+    ]);
+  }
+  $("new-topic").onclick = async () => {
+    const name = await ask({ title: "New topic", text: "A topic is a big folder, like Math, C++ or Space.", placeholder: "Topic name", ok: "Create" });
+    if (!name) return;
+    try { await api("api/mkdir", { path: cleanName(name) }); await loadTree(); } catch (e) { toast(e.message); }
+  };
+  $("refresh-tree").onclick = () => loadTree().catch((e) => toast(e.message));
+  function cleanName(s) { return s.replace(/[\\/]+/g, "-").replace(/^\.+/, "").trim(); }
+  async function newFile(dir) {
+    const name = await ask({ title: "New file", text: "End it with .md for notes. Other kinds: .quiz.json, .flash.json, .plot.json, .lab.json, .html", value: "notes.md", ok: "Create" });
+    if (!name) return;
+    let n = cleanName(name);
+    if (!/\.[a-z0-9]+$/i.test(n)) n += ".md";
+    const p = join(dir, n);
+    if (S.paths.has(p)) return toast("A file with that name exists.");
+    const starter = n.endsWith(".md") ? "# " + prettyName(n).replace(/[-_]/g, " ") + "\n\n" : "";
+    try {
+      await api("api/file", { path: p, content: starter });
+      S.collapsed.delete(dir);
+      await loadTree();
+      await openFile(p);
+      startEdit();
+      if (mobile()) setPane("reader");
+    } catch (e) { toast(e.message); }
+  }
+  async function newFolder(dir) {
+    const name = await ask({ title: "New folder", placeholder: "Folder name", ok: "Create" });
+    if (!name) return;
+    try { await api("api/mkdir", { path: join(dir, cleanName(name)) }); S.collapsed.delete(dir); await loadTree(); } catch (e) { toast(e.message); }
+  }
+  async function renamePath(n) {
+    const name = await ask({ title: "Rename", value: n.name, ok: "Rename" });
+    if (!name || name === n.name) return;
+    const dst = join(parentOf(n.path), cleanName(name));
+    try {
+      await api("api/move", { src: n.path, dst });
+      S.open = S.open.map((p) => (p === n.path || p.startsWith(n.path + "/") ? dst + p.slice(n.path.length) : p));
+      if (S.active && (S.active === n.path || S.active.startsWith(n.path + "/"))) S.active = dst + S.active.slice(n.path.length);
+      S.cache.clear();
+      await loadTree();
+      drawTabs(); renderActive();
+    } catch (e) { toast(e.message); }
+  }
+  async function deletePath(n) {
+    const ok = await ask({ title: "Delete " + n.name + "?", text: n.dir ? "The folder and everything inside it will be removed." : "This file will be removed.", input: false, ok: "Delete", danger: true });
+    if (!ok) return;
+    try {
+      await api("api/delete", { path: n.path });
+      S.open = S.open.filter((p) => p !== n.path && !p.startsWith(n.path + "/"));
+      if (S.active && !S.open.includes(S.active)) S.active = S.open[S.open.length - 1] || null;
+      await loadTree();
+      drawTabs(); renderActive();
+    } catch (e) { toast(e.message); }
+  }
+
+  // ---- reader ---------------------------------------------------------------------
+  async function openFile(path, opts) {
+    opts = opts || {};
+    if (!S.paths.has(path)) {
+      await loadTree().catch(() => {});
+      const n = S.paths.get(path);
+      if (!n) { toast("Can't find " + path); return; }
+      if (n.dir) { S.collapsed.delete(path); drawTree(); if (mobile()) setPane("topics"); return; }
+    } else if (S.paths.get(path).dir) {
+      S.collapsed.delete(path); drawTree(); if (mobile()) setPane("topics"); return;
+    }
+    if (S.editing && S.active !== path) stopEdit();
+    if (!S.open.includes(path)) S.open.push(path);
+    S.active = path;
+    if (opts.reload) S.cache.delete(path);
+    // make sure it is visible in the tree
+    let p = parentOf(path);
+    while (p) { S.collapsed.delete(p); p = parentOf(p); }
+    store.set("tabs", { open: S.open, active: S.active });
+    drawTabs();
+    drawTree();
+    await renderActive();
+  }
+
+  function drawTabs() {
+    const t = $("tabs");
+    t.hidden = !S.open.length;
+    t.replaceChildren(...S.open.map((p) => {
+      const kind = LG.kindOf(p);
+      const name = prettyName(p.split("/").pop());
+      const tab = h("div", { class: "tab" + (p === S.active ? " active" : ""), role: "tab", title: p, "aria-selected": String(p === S.active) },
+        h("span", { text: LG.ICON[kind] || "📄" }), h("span", { class: "t", text: name }),
+        h("button", { class: "x", "aria-label": "Close " + name, onclick: (e) => { e.stopPropagation(); closeTab(p); } }, "×"));
+      tab.onclick = () => { if (p !== S.active) openFile(p); };
+      return tab;
+    }));
+    const act = t.querySelector(".tab.active");
+    if (act) act.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  function closeTab(p) {
+    const i = S.open.indexOf(p);
+    S.open.splice(i, 1);
+    S.cache.delete(p);
+    if (S.active === p) { stopEdit(); S.active = S.open[Math.min(i, S.open.length - 1)] || null; }
+    store.set("tabs", { open: S.open, active: S.active });
+    drawTabs(); drawTree(); renderActive();
+  }
+
+  let renderSeq = 0;
+  async function renderActive() {
+    const seq = ++renderSeq;
+    const body = $("reader");
+    body.classList.remove("full");
+    if (!S.active) {
+      $("reader-bar").hidden = true;
+      body.replaceChildren(welcome());
+      return;
+    }
+    const path = S.active, kind = LG.kindOf(path);
+    $("reader-bar").hidden = false;
+    $("reader-path").textContent = path;
+    $("edit-btn").hidden = S.editing || !LG.editable(kind);
+    $("save-btn").hidden = $("cancel-btn").hidden = !S.editing;
+    if (kind === "image") { body.replaceChildren(); LG.renderFile(path, "", body); return; }
+    let text = S.cache.get(path);
+    if (text == null) {
+      if (!body.firstChild) body.append(h("div", { class: "boot", style: "position:static;padding:40px" }, h("div", { class: "spinner" })));
+      try { text = await api("api/file?path=" + encodeURIComponent(path)); }
+      catch (e) { if (seq === renderSeq) body.replaceChildren(LG.problem(e.message)); return; }
+      if (typeof text !== "string") text = JSON.stringify(text, null, 2);
+      S.cache.set(path, text);
+    }
+    if (seq !== renderSeq) return;
+    const scroll = body.dataset.path === path ? body.scrollTop : 0;
+    body.replaceChildren();
+    body.dataset.path = path;
+    if (S.editing) {
+      const ta = h("textarea", { class: "editor", spellcheck: "false", "aria-label": "Edit " + path });
+      ta.value = text;
+      ta.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveEdit(); }
+        if (e.key === "Tab") { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText("  ", s, ta.selectionEnd, "end"); }
+      });
+      body.append(h("div", { style: "max-width:900px;margin:0 auto" }, ta));
+      ta.focus();
+      return;
+    }
+    const r = LG.renderFile(path, text, body) || {};
+    if (r.full) body.classList.add("full");
+    body.scrollTop = scroll;
+  }
+
+  function welcome() {
+    const name = S.me ? S.me.display : "";
+    const starters = [
+      ["🧮", "Math", "Teach me something new in math, at my level."],
+      ["💻", "Coding", "I want to learn to code. Where should I start?"],
+      ["🔭", "Science", "Show me something amazing about space or nature."],
+      ["✨", "Surprise me", "Surprise me with a fun thing to learn today."],
+    ];
+    return h("div", { class: "welcome" },
+      h("div", { class: "big-emoji", text: "🌱" }),
+      h("h1", { text: "Hi" + (name ? " " + name : "") + "!" }),
+      h("p", { class: "muted", text: "This is your learning space. Tell your teacher what you want to learn. It will make notes, quizzes, flashcards and practice labs for you, and they show up here." }),
+      h("div", { class: "starters" }, starters.map(([e, t, msg]) =>
+        h("button", { class: "starter", onclick: () => { if (mobile()) setPane("chat"); send(msg); } }, h("b", { text: e + " " + t }), h("span", { class: "muted", text: msg })))));
+  }
+
+  function startEdit() {
+    if (!S.active) return;
+    S.editing = true;
+    renderActive();
+  }
+  function stopEdit() { S.editing = false; }
+  async function saveEdit() {
+    const ta = document.querySelector("#reader textarea.editor");
+    if (!ta || !S.active) return;
+    try {
+      await api("api/file", { path: S.active, content: ta.value });
+      S.cache.set(S.active, ta.value);
+      S.editing = false;
+      toast("Saved ✓");
+      renderActive();
+      loadTree().catch(() => {});
+    } catch (e) { toast(e.message); }
+  }
+  $("edit-btn").onclick = startEdit;
+  $("save-btn").onclick = saveEdit;
+  $("cancel-btn").onclick = () => { S.editing = false; renderActive(); };
+
+  // ---- chat -----------------------------------------------------------------------
+  const TOOL_TEXT = {
+    write_file: ["Writing a file…", "Wrote"], edit_file: ["Editing a file…", "Edited"], read_file: ["Reading…", "Read"],
+    list_files: ["Looking at your files…", "Looked at your files"], show_file: ["Opening…", "Opened"],
+    delete_path: ["Deleting…", "Deleted"], move_path: ["Moving…", "Moved"], list_blocks: ["Checking the building blocks…", "Checked the building blocks"],
+    get_block: ["Getting a building block…", "Used building block"], save_block: ["Saving a building block…", "Saved a new building block"],
+    web_search: ["Searching the web…", "Searched the web"], quiz: ["Making a quiz…", "Quiz"], ask_user_question: ["Asking you something…", "Question"],
+  };
+
+  async function loadChats(selectId) {
+    const d = await api("api/chats");
+    S.chats = d.chats || [];
+    const sel = $("chat-pick");
+    sel.replaceChildren(...(S.chats.length ? S.chats : [{ id: "", title: "New chat" }]).map((c) => h("option", { value: c.id, text: c.title || "Chat" })));
+    const want = selectId || S.chatId || store.get("chat", null);
+    S.chatId = S.chats.some((c) => c.id === want) ? want : (S.chats[0] && S.chats[0].id) || null;
+    sel.value = S.chatId || "";
+    $("del-chat").hidden = !S.chatId;
+  }
+  $("chat-pick").onchange = () => { S.chatId = $("chat-pick").value || null; store.set("chat", S.chatId); loadChat(); };
+  $("new-chat").onclick = async () => {
+    if (S.busy) return toast("Wait until the teacher finishes, or press Stop.");
+    try {
+      const d = await api("api/chat/new", {});
+      await loadChats(d.id);
+      store.set("chat", d.id);
+      await loadChat();
+      $("input").focus();
+    } catch (e) { toast(e.message); }
+  };
+  $("del-chat").onclick = async () => {
+    if (!S.chatId) return;
+    const c = S.chats.find((x) => x.id === S.chatId);
+    const ok = await ask({ title: "Delete this chat?", text: "\"" + (c ? c.title : "Chat") + "\" will be gone. Your files stay.", input: false, ok: "Delete", danger: true });
+    if (!ok) return;
+    try { await api("api/chat/delete", { id: S.chatId }); S.chatId = null; store.set("chat", null); await loadChats(); await loadChat(); } catch (e) { toast(e.message); }
+  };
+
+  let pollTm = null;
+  async function loadChat() {
+    clearTimeout(pollTm);
+    const box = $("messages");
+    if (!S.chatId) { box.replaceChildren(chatEmpty()); return; }
+    let d;
+    try { d = await api("api/chat?id=" + S.chatId); } catch (e) { box.replaceChildren(LG.problem(e.message)); return; }
+    box.replaceChildren();
+    const items = d.items || [];
+    if (!items.length) box.append(chatEmpty());
+    items.forEach((it, i) => {
+      const last = i === items.length - 1;
+      if (it.role === "user") addUser(it.text);
+      else if (it.role === "assistant") addAssistant(it.text);
+      else if (it.role === "tool") addTool(it.name, it.detail, true);
+      else if (it.role === "quiz") addQuiz(it.questions, !last || d.busy);
+      else if (it.role === "choice") addChoice(it, !last || d.busy);
+    });
+    if (items.length) scrollDown(true);
+    if (d.busy && !S.busy) {
+      box.append(h("div", { class: "thinking" }, h("span", { class: "mini-spin" }), "Still answering (in another window)…"));
+      pollTm = setTimeout(loadChat, 2500);
+    }
+  }
+  function chatEmpty() {
+    const ideas = ["What can you teach me?", "Explain integration like I'm new to it.", "Quiz me on what I learned last time."];
+    return h("div", { class: "chat-empty" }, h("div", { class: "big-emoji", text: "👋" }),
+      h("p", { text: "Say hi to your teacher! Ask a question or say what you want to learn." }),
+      h("div", { class: "starters" }, ideas.map((t) => h("button", { class: "starter", onclick: () => send(t) }, t))));
+  }
+
+  function nearBottom() { const b = $("messages"); return b.scrollHeight - b.scrollTop - b.clientHeight < 120; }
+  function scrollDown(force) { const b = $("messages"); if (force || nearBottom()) b.scrollTop = b.scrollHeight; }
+  function clearEmpty() { const e = $("messages").querySelector(".chat-empty"); if (e) e.remove(); }
+
+  function addUser(text) {
+    clearEmpty();
+    const m = h("div", { class: "msg user" }, h("div", { class: "bubble", text }));
+    $("messages").append(m);
+    return m;
+  }
+  function addAssistant(text) {
+    clearEmpty();
+    const b = h("div", { class: "bubble" });
+    const m = h("div", { class: "msg assistant" }, b);
+    $("messages").append(m);
+    LG.renderMarkdown(text, b, { chat: true });
+    return { m, b, text };
+  }
+  function addTool(name, detail, done) {
+    const t = TOOL_TEXT[name] || [name + "…", name];
+    const line = h("div", { class: "msg tool", "data-tool": name });
+    setTool(line, name, detail, done, t);
+    $("messages").append(line);
+    return line;
+  }
+  function setTool(line, name, detail, done, t) {
+    t = t || TOOL_TEXT[name] || [name + "…", name];
+    line.replaceChildren();
+    if (!done) { line.append(h("span", { class: "mini-spin" }), t[0]); line.dataset.pending = "1"; return; }
+    delete line.dataset.pending;
+    line.append(h("span", { text: "✓" }), t[1]);
+    if (detail) {
+      line.append(" ");
+      const isPath = ["write_file", "edit_file", "read_file", "show_file", "move_path"].includes(name) && !detail.includes(" -> ");
+      if (isPath) {
+        const a = h("a", { text: detail, onclick: () => { openFile(detail); if (mobile()) setPane("reader"); } });
+        line.append(a);
+      } else line.append(h("span", { text: detail }));
+    }
+  }
+  function addError(msg) {
+    $("messages").append(h("div", { class: "msg error" }, h("div", { class: "bubble", text: "⚠️ " + msg })));
+  }
+  function addQuiz(questions, readOnly) {
+    clearEmpty();
+    const card = h("div", { class: "card" });
+    $("messages").append(h("div", { class: "msg assistant" }, card));
+    try { LG.renderQuiz(questions, card, { mode: "chat", readOnly }); } catch (e) { card.append(LG.problem(e.message)); }
+  }
+  function addChoice(it, readOnly) {
+    clearEmpty();
+    const card = h("div", { class: "card" });
+    const q = h("div", { class: "q-text" });
+    LG.renderMarkdown(String(it.question || ""), q, { inline: true });
+    card.append(q);
+    const btns = h("div", { class: "choice-btns" });
+    const lock = () => card.querySelectorAll("button, input").forEach((x) => { x.disabled = true; });
+    (it.options || []).forEach((o) => {
+      const b = h("button", { class: "btn", type: "button", disabled: readOnly });
+      LG.renderMarkdown(String(o), b, { inline: true });
+      b.onclick = () => { if (S.busy) return; b.classList.add("primary"); lock(); send(String(o)); };
+      btns.append(b);
+    });
+    card.append(btns);
+    if (!readOnly && it.allow_other !== false) {
+      const inp = h("input", { placeholder: "Or type your own answer…", "aria-label": "Your own answer" });
+      const go = h("button", { class: "btn", type: "button", text: "Send" });
+      const submit = () => { const v = inp.value.trim(); if (!v || S.busy) return; lock(); send(v); };
+      go.onclick = submit;
+      inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+      card.append(h("div", { class: "choice-other" }, inp, go));
+    }
+    $("messages").append(h("div", { class: "msg assistant" }, card));
+  }
+
+  function setBusy(b) {
+    S.busy = b;
+    $("send-btn").hidden = b;
+    $("stop-btn").hidden = !b;
+    $("new-chat").disabled = b;
+    $("chat-pick").disabled = b;
+  }
+
+  async function send(text, display) {
+    text = String(text || "").trim();
+    if (!text) return;
+    if (S.busy) { toast("Wait until the teacher finishes, or press Stop."); return; }
+    setBusy(true);
+    try {
+      if (!S.chatId) {
+        const d = await api("api/chat/new", {});
+        S.chatId = d.id;
+        store.set("chat", d.id);
+        await loadChats(d.id);
+        $("messages").replaceChildren();
+      }
+    } catch (e) { setBusy(false); toast(e.message); return; }
+    clearTimeout(pollTm);
+    addUser(display || text);
+    scrollDown(true);
+    const thinking = h("div", { class: "thinking" }, h("span", { class: "mini-spin" }), "Thinking…");
+    $("messages").append(thinking);
+    let cur = null, rafPending = false;
+    const flushText = () => {
+      rafPending = false;
+      if (cur) { LG.renderMarkdown(cur.text, cur.b, { chat: true }); scrollDown(); }
+    };
+    const showThinking = (on, label) => {
+      if (on) { thinking.lastChild.textContent = label || "Thinking…"; $("messages").append(thinking); scrollDown(); }
+      else thinking.remove();
+    };
+    const handle = (ev) => {
+      switch (ev.t) {
+        case "text":
+          showThinking(false);
+          if (!cur) cur = addAssistant("");
+          cur.text += ev.d || "";
+          if (!rafPending) { rafPending = true; requestAnimationFrame(flushText); }
+          break;
+        case "thinking":
+          if (!cur) showThinking(true, "Thinking…");
+          break;
+        case "tool_start":
+          if (cur) flushText();
+          cur = null; showThinking(false);
+          if (ev.name !== "quiz" && ev.name !== "ask_user_question") addTool(ev.name, "", false);
+          scrollDown();
+          break;
+        case "tool": {
+          const pend = [...$("messages").querySelectorAll('.msg.tool[data-pending="1"]')].find((l) => l.dataset.tool === ev.name);
+          if (ev.name === "quiz" || ev.name === "ask_user_question") break;
+          if (pend) setTool(pend, ev.name, ev.detail, true); else addTool(ev.name, ev.detail, true);
+          showThinking(true, "Working…");
+          break;
+        }
+        case "tree":
+          onTreeChanged(ev.changed);
+          break;
+        case "show":
+          openFile(ev.path, { reload: true }).then(() => {
+            if (mobile() && S.pane !== "reader") { document.querySelector("#bottom-tabs .dot").hidden = false; setPane("reader"); }
+          });
+          break;
+        case "quiz":
+          showThinking(false); cur = null;
+          addQuiz(ev.questions, false); scrollDown(true);
+          break;
+        case "choice":
+          showThinking(false); cur = null;
+          addChoice(ev, false); scrollDown(true);
+          break;
+        case "usage":
+          if (S.me) { S.me.spent = (S.me.spent || 0) + (+ev.usd || 0); drawMeter(); }
+          break;
+        case "error":
+          showThinking(false); cur = null;
+          addError(ev.msg || "Something went wrong.");
+          break;
+        case "done":
+          break;
+      }
+    };
+    try {
+      const r = await fetch("api/send", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat: S.chatId, text, display: display || undefined, model: S.me.model }) });
+      if (r.status === 401) { showLogin(); return; }
+      if (!r.ok || !r.body) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || "The teacher could not answer (" + r.status + ").");
+      }
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+          for (const line of chunk.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            try { handle(JSON.parse(line.slice(5).trim())); } catch (e) { console.warn("bad event", line, e); }
+          }
+        }
+      }
+      if (cur) flushText();
+    } catch (e) {
+      addError(e.message);
+    } finally {
+      thinking.remove();
+      $("messages").querySelectorAll('.msg.tool[data-pending="1"]').forEach((l) => setTool(l, l.dataset.tool, "", true));
+      setBusy(false);
+      scrollDown();
+      loadChats(S.chatId).catch(() => {});
+      refreshMe().catch(() => {});
+    }
+  }
+  LG.ctx.send = (text, display) => { if (mobile()) setPane("chat"); send(text, display); };
+  LG.ctx.open = (p) => { openFile(p); };
+  LG.ctx.toast = toast;
+
+  let treeTm = null;
+  function onTreeChanged(changed) {
+    if (changed) S.cache.delete(changed);
+    clearTimeout(treeTm);
+    treeTm = setTimeout(async () => {
+      try { await loadTree(); } catch (e) { return; }
+      if (changed) {
+        let p = parentOf(changed);
+        while (p) { S.collapsed.delete(p); p = parentOf(p); }
+        drawTree(changed);
+      }
+      if (changed && changed === S.active && !S.editing) renderActive();
+    }, 150);
+  }
+
+  $("stop-btn").onclick = () => { api("api/stop", {}).catch(() => {}); };
+  const input = $("input");
+  const grow = () => { input.style.height = "auto"; input.style.height = Math.min(180, input.scrollHeight) + "px"; };
+  input.addEventListener("input", grow);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); }
+  });
+  $("composer").onsubmit = (e) => {
+    e.preventDefault();
+    const t = input.value.trim();
+    if (!t || S.busy) return;
+    input.value = ""; grow();
+    send(t);
+  };
+
+  // ---- model + meter ----------------------------------------------------------------
+  function drawModels() {
+    const sel = $("model-pick");
+    sel.replaceChildren(...(S.me.models || []).map((m) => h("option", { value: m.id, text: "🎓 " + m.label })));
+    sel.value = S.me.model;
+    drawKeyWarning();
+  }
+  $("model-pick").onchange = async () => {
+    const m = $("model-pick").value;
+    try { await api("api/model", { model: m }); S.me.model = m; drawKeyWarning(); toast("Teacher: " + $("model-pick").selectedOptions[0].textContent.replace("🎓 ", "")); }
+    catch (e) { toast(e.message); $("model-pick").value = S.me.model; }
+  };
+  function drawKeyWarning() {
+    let w = document.getElementById("no-key");
+    const need = !S.me.key && !String(S.me.model).startsWith("ollama:");
+    if (need && !w) {
+      w = h("div", { id: "no-key", class: "no-key", text: "No API key is set up yet, so Claude models can't answer. Pick a local model, or ask the admin to add a key." });
+      $("pane-chat").insertBefore(w, $("composer"));
+    } else if (!need && w) w.remove();
+  }
+  function drawMeter() {
+    const sp = +S.me.spent || 0, cap = +S.me.cap || 0;
+    const frac = cap > 0 ? Math.min(1, sp / cap) : 0;
+    const f = $("meter-fill");
+    f.style.width = (frac * 100) + "%";
+    f.className = frac > 0.9 ? "high" : frac > 0.6 ? "mid" : "";
+    $("meter-text").textContent = "$" + sp.toFixed(2) + " of $" + cap.toFixed(2) + " this month";
+  }
+  async function refreshMe() {
+    const me = await api("api/me");
+    if (!me.user) { showLogin(); return; }
+    S.me = me;
+    drawMeter();
+    drawKeyWarning();
+  }
+
+  // ---- boot -------------------------------------------------------------------------
+  async function boot() {
+    applyTheme();
+    let me;
+    try { me = await api("api/me"); } catch (e) { $("boot").replaceChildren(LG.problem("Can't reach the server: " + e.message)); return; }
+    if (!me.user) return showLogin();
+    S.me = me;
+    $("login").hidden = true; $("boot").hidden = true; $("app").hidden = false;
+    $("hello").textContent = "Hi, " + me.display + " 👋";
+    S.collapsed = new Set(store.get("collapsed", []));
+    const tabs = store.get("tabs", { open: [], active: null });
+    drawModels(); drawMeter();
+    setPane(mobile() ? "chat" : "chat");
+    await Promise.all([loadTree().catch((e) => toast(e.message)), loadChats().catch((e) => toast(e.message))]);
+    S.open = (tabs.open || []).filter((p) => S.paths.has(p) && !S.paths.get(p).dir);
+    S.active = S.open.includes(tabs.active) ? tabs.active : S.open[S.open.length - 1] || null;
+    drawTabs(); drawTree(); renderActive();
+    loadChat();
+  }
+
+  function start() {
+    if (!window.marked || !window.DOMPurify) {
+      // A CDN script failed; still run, the renderers fall back to plain text.
+      console.warn("marked/DOMPurify missing");
+    }
+    boot();
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();

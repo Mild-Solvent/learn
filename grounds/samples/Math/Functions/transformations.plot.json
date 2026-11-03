@@ -1,0 +1,16 @@
+{
+  "title": "Moving a function around",
+  "description": "The dashed curve is the original $y = x^2$. Use the sliders: **a** stretches, **h** moves left and right, **k** moves up and down. The solid curve is $y = a(x-h)^2 + k$.",
+  "domain": [-6, 6],
+  "range": [-6, 10],
+  "functions": [
+    {"expr": "x^2", "label": "original: y = x²", "color": "#9a9ab0", "dash": true},
+    {"expr": "a*(x - h)^2 + k", "label": "y = a(x − h)² + k"}
+  ],
+  "params": {
+    "a": {"min": -3, "max": 3, "step": 0.1, "value": 1},
+    "h": {"min": -4, "max": 4, "step": 0.1, "value": 1},
+    "k": {"min": -5, "max": 5, "step": 0.1, "value": -2}
+  },
+  "points": [{"x": "h", "y": "k", "label": "vertex (h, k)"}]
+}

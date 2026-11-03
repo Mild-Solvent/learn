@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Learning Grounds</title>
+<script>
+  // Behind the funnel the app lives at /learn/; relative URLs need the slash.
+  if (!location.pathname.endsWith("/")) location.replace(location.pathname + "/" + location.search);
+  try {
+    var t = localStorage.getItem("lg-theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch (e) {}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5bd6'/%3E%3Cpath d='M8 22 L14 10 L18 18 L21 13 L25 22 Z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" id="hl-light" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/styles/github.min.css">
+<link rel="stylesheet" id="hl-dark" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/styles/github-dark.min.css" disabled>
+<link rel="stylesheet" href="static/app.css">
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjs@13.0.0/lib/browser/math.js"></script>
+<script defer src="static/render.js"></script>
+<script defer src="static/app.js"></script>
+</head>
+<body>
+<div id="boot" class="boot"><div class="spinner"></div></div>
+
+<!-- login -->
+<main id="login" class="login" hidden>
+  <form id="login-form" class="login-card" autocomplete="on">
+    <div class="brand big"><span class="logo"></span><span>Learning Grounds</span></div>
+    <p class="muted">Your own space to learn anything, with an AI teacher that builds the lessons for you.</p>
+    <label>Name<input id="login-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>Password<input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+    <div id="login-err" class="err" role="alert"></div>
+    <button class="btn primary wide" type="submit">Log in</button>
+    <p class="muted small">No account yet? Ask whoever runs this site to make one for you.</p>
+  </form>
+</main>
+
+<!-- app -->
+<div id="app" class="app" hidden>
+  <header class="top">
+    <div class="brand"><span class="logo"></span><span class="brand-name">Learning Grounds</span></div>
+    <div class="top-right">
+      <span id="hello" class="hello"></span>
+      <button id="theme-btn" class="icon-btn" title="Light or dark" aria-label="Switch light or dark"></button>
+      <button id="logout-btn" class="btn ghost small">Log out</button>
+    </div>
+  </header>
+
+  <div class="panes">
+    <!-- topics -->
+    <aside id="pane-topics" class="pane topics">
+      <div class="pane-head">
+        <h2>Topics</h2>
+        <div class="row gap-s">
+          <button id="refresh-tree" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
+          <button id="new-topic" class="btn small">+ Topic</button>
+        </div>
+      </div>
+      <div id="tree" class="tree" role="tree"></div>
+    </aside>
+
+    <!-- reader -->
+    <section id="pane-reader" class="pane reader">
+      <div id="tabs" class="tabs" role="tablist"></div>
+      <div id="reader-bar" class="reader-bar" hidden>
+        <span id="reader-path" class="reader-path"></span>
+        <div class="row gap-s">
+          <button id="edit-btn" class="btn small ghost">Edit</button>
+          <button id="save-btn" class="btn small primary" hidden>Save</button>
+          <button id="cancel-btn" class="btn small ghost" hidden>Cancel</button>
+        </div>
+      </div>
+      <div id="reader" class="reader-body"></div>
+    </section>
+
+    <!-- chat -->
+    <section id="pane-chat" class="pane chat">
+      <div class="chat-head">
+        <div class="row gap-s grow">
+          <select id="chat-pick" class="select grow" aria-label="Chats"></select>
+          <button id="new-chat" class="btn small" title="Start a new chat">+ New</button>
+          <button id="del-chat" class="icon-btn" title="Delete this chat" aria-label="Delete this chat">🗑</button>
+        </div>
+        <div class="row gap-s">
+          <select id="model-pick" class="select grow" aria-label="Teacher model"></select>
+        </div>
+        <div id="meter" class="meter" title="Spent this month">
+          <div class="meter-bar"><div id="meter-fill"></div></div>
+          <span id="meter-text"></span>
+        </div>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Ask your teacher anything…" aria-label="Message"></textarea>
+        <button id="send-btn" class="btn primary" type="submit" aria-label="Send">Send</button>
+        <button id="stop-btn" class="btn danger" type="button" hidden>Stop</button>
+      </form>
+    </section>
+  </div>
+
+  <nav class="bottom-tabs" id="bottom-tabs">
+    <button data-pane="topics">📚<span>Topics</span></button>
+    <button data-pane="reader">📖<span>Reader</span><i class="dot" hidden></i></button>
+    <button data-pane="chat">💬<span>Chat</span></button>
+  </nav>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <form id="modal-card" class="modal-card">
+    <h3 id="modal-title"></h3>
+    <p id="modal-text" class="muted"></p>
+    <input id="modal-input" autocomplete="off" spellcheck="false">
+    <div class="row gap-s end">
+      <button type="button" id="modal-cancel" class="btn ghost">Cancel</button>
+      <button type="submit" id="modal-ok" class="btn primary">OK</button>
+    </div>
+  </form>
+</div>
+<div id="menu" class="menu" hidden></div>
+<div id="toast" class="toast" hidden></div>
+</body>
+</html>

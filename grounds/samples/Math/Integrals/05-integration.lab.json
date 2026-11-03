@@ -1,0 +1,11 @@
+{
+  "title": "Integration lab",
+  "intro": "Type your answer using `x`, `^` for powers and `*` if you like (`3x^2` works too). Press **Check**: the graph shows your answer against the right one, and red shading shows where they differ.",
+  "tasks": [
+    {"kind": "antiderivative", "prompt": "Find an antiderivative of $f(x) = 3x^2$.", "target": "3x^2", "hint": "Which power of $x$ has derivative $3x^2$?", "solution": "x^3 + C"},
+    {"kind": "antiderivative", "prompt": "Find an antiderivative of $f(x) = \\cos(x) + 2$.", "target": "cos(x) + 2", "hint": "Do each part separately. What has derivative $\\cos x$?", "solution": "sin(x) + 2x + C"},
+    {"kind": "derivative", "prompt": "Differentiate $g(x) = x^3 - 4x$.", "target": "x^3 - 4x", "solution": "3x^2 - 4"},
+    {"kind": "expression", "prompt": "Expand $(x+1)^2$.", "target": "(x+1)^2", "hint": "$(a+b)^2 = a^2 + 2ab + b^2$", "solution": "x^2 + 2x + 1"},
+    {"kind": "equation", "prompt": "Solve $x^2 - 5x + 6 = 0$. Give all solutions separated by commas.", "target": "x^2 - 5x + 6 = 0", "domain": [-2, 7], "hint": "Find two numbers that multiply to 6 and add to 5.", "solution": "2, 3"}
+  ]
+}
