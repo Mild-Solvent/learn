@@ -1,0 +1,21 @@
+[Unit]
+Description=Learning Grounds (AI study site, 127.0.0.1:8796, behind tailscale funnel /learn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=remotemaster
+Group=remotemaster
+WorkingDirectory=/home/remotemaster/github/learn/grounds
+Environment=PORT=8796
+Environment=LG_DATA=/home/remotemaster/learning-grounds/data
+Environment=HOME=/home/remotemaster
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/remotemaster/learning-grounds/venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
