@@ -785,6 +785,16 @@ def loose_tool_calls(text):
     return calls
 
 
+def ensure_ollama(emit):
+    """The devbox panel keeps Ollama stopped to free the GPU; wake it up."""
+    emit({"t": "tool", "name": "starting the local model", "detail": "Ollama"})
+    os.system("sudo -n systemctl start ollama >/dev/null 2>&1")
+    for _ in range(20):
+        if ollama_tags() is not None:
+            return
+        time.sleep(1)
+
+
 def ollama_turn(name, chat, model, emit, cancel):
     tag = model.split(":", 1)[1]
     u = users().get(name, {})
@@ -798,6 +808,8 @@ def ollama_turn(name, chat, model, emit, cancel):
                 "messages": to_openai(system, scrub_for_api(trim_for_local(chat["messages"])))}
         req = urllib.request.Request(OLLAMA + "/v1/chat/completions", json.dumps(body).encode(),
                                      {"Content-Type": "application/json"})
+        if ollama_tags() is None:
+            ensure_ollama(emit)
         text, calls, in_think = "", {}, False
         try:
             with urllib.request.urlopen(req, timeout=600) as r:
