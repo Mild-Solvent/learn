@@ -9,9 +9,9 @@
  */
 
 import { spawn } from "node:child_process"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 
 // rsvg-convert lives under MacPorts (/opt/local/bin); magick/gs under
 // /usr/local/bin; Homebrew under /opt/homebrew/bin. Augment PATH so the child
@@ -26,10 +26,23 @@ export const FILES_DIRNAME = "viz"
 export const CHROME_CANDIDATES = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
 ]
 
+// A Chromium that Playwright downloaded, newest first. Linux boxes often have
+// one of these and no system Chrome.
+function playwrightChromes(): string[] {
+  const root = join(homedir(), ".cache", "ms-playwright")
+  let dirs: string[] = []
+  try { dirs = readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse() } catch { return [] }
+  return dirs.map((d) => join(root, d, "chrome-linux64", "chrome"))
+}
+
 export function findChrome(): string | undefined {
-  for (const c of CHROME_CANDIDATES) if (existsSync(c)) return c
+  const env = process.env.PI_CHROME
+  for (const c of [...(env ? [env] : []), ...CHROME_CANDIDATES, ...playwrightChromes()]) if (existsSync(c)) return c
   return undefined
 }
 
