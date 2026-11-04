@@ -370,7 +370,7 @@ h1, h2, h3, h4 { line-height: 1.25; }
 .pdf-frame { width: 100%; height: 75vh; border: 1px solid var(--line); border-radius: var(--radius-s); background: #fff; }
 .extract { white-space: pre-wrap; font: 14px/1.55 var(--font); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 14px 16px; max-height: 70vh; overflow: auto; margin: 0; }
 details.extract-wrap summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
-@media (pointer: fine) { #camera-btn { display: none; } }
+
 @media (max-width: 900px) { .pdf-frame { display: none; } }
 .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) { .composer { gap: 6px; } .attach-btns .icon-btn { width: 32px; } }
@@ -410,3 +410,12 @@ details.extract-wrap summary { cursor: pointer; color: var(--muted); margin-bott
 .cam-help { position: relative; max-width: 340px; margin: 16px; text-align: center; display: grid; gap: 14px; background: rgba(30,30,40,.92); padding: 20px; border-radius: 16px; }
 .cam-help p { margin: 0; line-height: 1.5; }
 .cam .btn:not(.primary) { color: var(--text); }
+
+/* KaTeX keeps its MathML copy in position:absolute elements. Without a
+   positioned ancestor those are placed against the page, so a long chat or
+   note with math made the whole page thousands of pixels tall: the browser
+   scrolled the window and the app ended up squeezed at the top. Anchor them
+   to their own scroll containers and never let the app scroll the page. */
+.app { position: relative; overflow: hidden; }
+.tree, .messages, .reader-body, .bubble, .doc { position: relative; }
+body:has(> #app:not([hidden])) { overflow: hidden; }
