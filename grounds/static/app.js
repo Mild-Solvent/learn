@@ -729,6 +729,8 @@
   const input = $("input");
   const grow = () => { input.style.height = "auto"; input.style.height = Math.min(180, input.scrollHeight) + "px"; };
   input.addEventListener("input", grow);
+  // keep what they typed if the phone kills the tab (e.g. while in the camera app)
+  input.addEventListener("input", () => store.set("draft", input.value));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); }
   });
@@ -739,7 +741,7 @@
     if (S.pending.some((a) => a.status === "up")) { toast("Wait a moment, still uploading…"); return; }
     const atts = S.pending.filter((a) => a.status === "ok").map((a) => a.path);
     if (!t && !atts.length) return;
-    input.value = ""; grow();
+    input.value = ""; grow(); store.set("draft", "");
     clearPending();
     send(t, null, atts);
   };
@@ -856,7 +858,104 @@
     $("input").focus();
   }
   $("attach-btn").onclick = () => $("attach-input").click();
-  $("camera-btn").onclick = () => $("camera-input").click();
+  $("camera-btn").onclick = () => openCamera();
+  $("gallery-input").onchange = (e) => { const f = e.target.files; e.target.value = ""; closeCamera(); attachFiles(f, false); };
+
+  // ---- in-page camera ---------------------------------------------------------------------
+  // Opening the system camera app (input capture) sends the browser to the
+  // background, and on a phone low on memory Android kills the tab: the photo
+  // never comes back ("Unable to complete previous operation due to low
+  // memory"). getUserMedia keeps everything inside the page. The camera app is
+  // still the fallback when the page may not use the camera.
+  const cam = { stream: null, facing: "environment", blob: null, url: null };
+  const camSupported = () => window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+  function camView(v) {   // "live" | "review" | "help"
+    $("cam-live").hidden = v !== "live";
+    $("cam-review").hidden = v !== "review";
+    $("cam-help").hidden = v !== "help";
+    $("cam-video").hidden = v === "review";
+    $("cam-shot").hidden = v !== "review";
+  }
+  function camHelp(text) { stopStream(); camView("help"); $("cam-help-text").textContent = text; $("cam-msg").textContent = ""; }
+  function stopStream() {
+    if (cam.stream) cam.stream.getTracks().forEach((t) => t.stop());
+    cam.stream = null;
+    $("cam-video").srcObject = null;
+  }
+  async function startStream() {
+    stopStream();
+    $("cam-msg").textContent = "Starting the camera…";
+    camView("live");
+    try {
+      cam.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+        video: { facingMode: { ideal: cam.facing }, width: { ideal: 1920 }, height: { ideal: 1440 } } });
+      if ($("cam").hidden) { stopStream(); return; }
+      const v = $("cam-video");
+      v.srcObject = cam.stream;
+      await v.play().catch(() => {});
+      $("cam-msg").textContent = "Hold the page flat and fill the screen with it";
+      const n = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === "videoinput").length;
+      $("cam-flip").style.visibility = n > 1 ? "" : "hidden";
+    } catch (e) {
+      const blocked = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+      camHelp(blocked
+        ? "The browser is not letting this page use the camera. Tap the lock or settings icon next to the address, allow Camera, and try again. Or use the camera app instead."
+        : "Could not start the camera here (" + ((e && e.name) || "error") + "). Use the camera app instead.");
+    }
+  }
+  function openCamera() {
+    if (!camSupported()) { $("camera-input").click(); return; }
+    clearShot();
+    $("cam").hidden = false;
+    document.body.style.overflow = "hidden";
+    startStream();
+  }
+  function closeCamera() {
+    stopStream(); clearShot();
+    $("cam").hidden = true;
+    document.body.style.overflow = "";
+  }
+  function clearShot() {
+    if (cam.url) URL.revokeObjectURL(cam.url);
+    cam.url = null; cam.blob = null;
+    $("cam-shot").removeAttribute("src");
+  }
+  $("cam-shutter").onclick = async () => {
+    const v = $("cam-video");
+    if (!cam.stream || !v.videoWidth) return;
+    const MAX = 2000, k = Math.min(1, MAX / Math.max(v.videoWidth, v.videoHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+    c.width = c.height = 0;                      // give the memory back now
+    if (!blob) { toast("Could not take the photo. Try again."); return; }
+    stopStream();                                // camera off while reviewing
+    clearShot();
+    cam.blob = blob; cam.url = URL.createObjectURL(blob);
+    $("cam-shot").src = cam.url;
+    $("cam-msg").textContent = "Is the text sharp and readable?";
+    camView("review");
+  };
+  function useShot(more) {
+    if (!cam.blob) return;
+    const f = new File([cam.blob], photoName({}), { type: "image/jpeg" });
+    cam.blob = null;                              // attachFiles owns it now
+    attachFiles([f], false);
+    if (more) { clearShot(); startStream(); } else closeCamera();
+  }
+  $("cam-use").onclick = () => useShot(false);
+  $("cam-more").onclick = () => useShot(true);
+  $("cam-retake").onclick = () => { clearShot(); startStream(); };
+  $("cam-flip").onclick = () => { cam.facing = cam.facing === "environment" ? "user" : "environment"; startStream(); };
+  $("cam-close").onclick = closeCamera;
+  $("cam-gallery").onclick = () => $("gallery-input").click();
+  $("cam-app").onclick = () => { closeCamera(); $("camera-input").click(); };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("cam").hidden) closeCamera(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopStream();            // never hold the camera in the background
+    else if (!$("cam").hidden && $("cam-review").hidden && $("cam-help").hidden) startStream();
+  });
   $("attach-input").onchange = (e) => { attachFiles(e.target.files, false); e.target.value = ""; };
   $("camera-input").onchange = (e) => { attachFiles(e.target.files, true); e.target.value = ""; };
   input.addEventListener("paste", (e) => {
@@ -1085,6 +1184,8 @@
     S.active = S.open.includes(tabs.active) ? tabs.active : S.open[S.open.length - 1] || null;
     drawTabs(); drawTree(); renderActive();
     loadChat();
+    const draft = store.get("draft", "");
+    if (draft && !$("input").value) { $("input").value = draft; $("input").dispatchEvent(new Event("input")); }
     drawTour();
   }
 
