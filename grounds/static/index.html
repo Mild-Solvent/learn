@@ -46,7 +46,7 @@
   <header class="top">
     <div class="brand"><span class="logo"></span><span class="brand-name">Learning Grounds</span></div>
     <div class="top-right">
-      <span id="hello" class="hello"></span>
+      <button id="hello" class="hello" title="About me: tell your teacher who you are" aria-label="Edit about me"></button>
       <button id="theme-btn" class="icon-btn" title="Light or dark" aria-label="Switch light or dark"></button>
       <button id="logout-btn" class="btn ghost small">Log out</button>
     </div>
@@ -59,6 +59,7 @@
         <h2>Topics</h2>
         <div class="row gap-s">
           <button id="refresh-tree" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
+          <button id="upload-tree" class="icon-btn" title="Upload files (school documents, photos…)" aria-label="Upload files">⬆</button>
           <button id="new-topic" class="btn small">+ Topic</button>
         </div>
       </div>
@@ -96,7 +97,14 @@
         </div>
       </div>
       <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="attach-row" class="attach-row" hidden></div>
       <form id="composer" class="composer">
+        <div class="attach-btns">
+          <button id="attach-btn" class="icon-btn" type="button" title="Attach files: worksheets, PDFs, Word documents, pictures" aria-label="Attach files">📎</button>
+          <button id="camera-btn" class="icon-btn" type="button" title="Take a photo" aria-label="Take a photo">📷</button>
+        </div>
+        <input id="attach-input" type="file" multiple hidden accept="image/*,.pdf,.doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xlsx,.ods,.txt,.md,.csv,.epub">
+        <input id="camera-input" type="file" hidden accept="image/*" capture="environment">
         <textarea id="input" rows="1" placeholder="Ask your teacher anything…" aria-label="Message"></textarea>
         <button id="send-btn" class="btn primary" type="submit" aria-label="Send">Send</button>
         <button id="stop-btn" class="btn danger" type="button" hidden>Stop</button>
@@ -122,6 +130,21 @@
     </div>
   </form>
 </div>
+<div id="profile" class="modal" hidden>
+  <form id="profile-card" class="modal-card wide">
+    <h3>About me</h3>
+    <p class="muted">Tell your teacher about yourself, so the lessons fit you: your age or class, your school, what you like, what is hard for you, which language you want to learn in.</p>
+    <label class="field">Name<input id="profile-display" maxlength="60" autocomplete="off"></label>
+    <label class="field">About me<textarea id="profile-about" rows="7" maxlength="2000" placeholder="I am 12 and in 7th grade. I like football and drawing. Fractions are hard for me. Please explain in Slovak."></textarea></label>
+    <div class="row gap-s end">
+      <span id="profile-count" class="muted small grow"></span>
+      <button type="button" id="profile-cancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+</div>
+<input id="tree-upload-input" type="file" multiple hidden>
+<div id="drop-hint" class="drop-hint" hidden><div>Drop files to send them to your teacher</div></div>
 <div id="menu" class="menu" hidden></div>
 <div id="toast" class="toast" hidden></div>
 </body>

@@ -1033,6 +1033,8 @@
   // ---- file dispatch -------------------------------------------------------------
   const CODE_LANG = { py: "python", js: "javascript", ts: "typescript", cpp: "cpp", cc: "cpp", cxx: "cpp", h: "cpp", hpp: "cpp", c: "c", java: "java", rs: "rust", go: "go", sh: "bash", rb: "ruby", cs: "csharp", css: "css", json: "json", yml: "yaml", yaml: "yaml", sql: "sql", tex: "latex", kt: "kotlin", swift: "swift", php: "php", lua: "lua", r: "r", m: "matlab", toml: "ini", ini: "ini", xml: "xml", svg: "xml" };
   const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+  const DOCS = /\.(docx?|odt|rtf|pptx?|odp|xlsx?|ods|epub)$/i;
+  const BINARY = /\.(heic|heif|tiff?|zip|rar|7z|mp3|m4a|wav|ogg|mp4|mov|webm|exe|bin)$/i;
   function kindOf(path) {
     const p = path.toLowerCase();
     if (p.endsWith(".quiz.json")) return "quiz";
@@ -1042,13 +1044,44 @@
     if (/\.(md|markdown)$/.test(p)) return "md";
     if (/\.html?$/.test(p)) return "html";
     if (IMAGE.test(p)) return "image";
+    if (p.endsWith(".pdf")) return "pdf";
+    if (DOCS.test(p)) return "doc";
     const ext = p.split(".").pop();
+    if (BINARY.test(p)) return "binary";
     if (CODE_LANG[ext]) return "code";
     return "text";
   }
   LG.kindOf = kindOf;
-  LG.ICON = { quiz: "❓", flash: "🃏", plot: "📈", lab: "🧪", md: "📝", html: "🧩", image: "🖼️", code: "💻", text: "📄" };
-  LG.editable = (k) => k !== "image";
+  LG.ICON = { quiz: "❓", flash: "🃏", plot: "📈", lab: "🧪", md: "📝", html: "🧩", image: "🖼️", code: "💻", text: "📄", pdf: "📕", doc: "📘", binary: "📦" };
+  LG.editable = (k) => !["image", "pdf", "doc", "binary"].includes(k);
+  LG.isBinaryKind = (k) => ["image", "pdf", "doc", "binary"].includes(k);
+
+  function humanSize(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : n > 1e3 ? Math.round(n / 1e3) + " KB" : n + " B"; }
+  LG.humanSize = humanSize;
+
+  /** PDFs, Word/PowerPoint documents and other binary files: open/download,
+   * an embedded viewer for PDFs, and the text the teacher reads. */
+  function renderBinaryFile(path, kind, host) {
+    const name = path.split("/").pop();
+    const meta = h("span", { class: "muted small", text: "" });
+    const card = h("div", { class: "file-card" },
+      h("div", { class: "head" }, h("span", { class: "big-ico", text: LG.ICON[kind] || "📦" }),
+        h("div", { class: "meta" }, h("b", { text: name }), meta),
+        h("a", { class: "btn small", href: fileUrl(path), target: "_blank", rel: "noopener", text: kind === "pdf" ? "Open" : "Download" }),
+        h("button", { class: "btn small primary", onclick: () => LG.ctx.send && LG.ctx.send("Please look at " + path + " and help me with it.", null, [path]) }, "Ask teacher about it")));
+    host.append(h("div", { class: "doc" }, card));
+    if (kind === "pdf") card.append(h("iframe", { class: "pdf-frame", src: fileUrl(path), title: name }));
+    if (kind === "binary") { meta.textContent = "The teacher can't open this kind of file."; return; }
+    const wrap = h("details", { class: "extract-wrap", open: kind === "doc" ? "" : null }, h("summary", { text: "Text the teacher reads from it" }));
+    const pre = h("pre", { class: "extract", text: "Loading…" });
+    wrap.append(pre);
+    card.append(wrap);
+    if (kind === "pdf") wrap.lastChild.before(h("p", { class: "muted small", text: "The teacher also sees the pages themselves, so pictures and scans work too." }));
+    fetch("api/extract?path=" + encodeURIComponent(path), { credentials: "same-origin" }).then((r) => r.json()).then((d) => {
+      meta.textContent = d.size != null ? humanSize(d.size) : "";
+      pre.textContent = d.text || (kind === "pdf" ? "(No text inside: probably a scan. The teacher still sees the pages.)" : "(No readable text found.)");
+    }).catch(() => { pre.textContent = "(Could not read it.)"; });
+  }
 
   /** Render a file. Returns {full: true} when the host should drop padding. */
   function renderFile(path, text, host) {
@@ -1064,6 +1097,7 @@
       host.append(h("div", { class: "doc" }, h("img", { class: "img-view", src: fileUrl(path), alt: path.split("/").pop() })));
       return {};
     }
+    if (kind === "pdf" || kind === "doc" || kind === "binary") { renderBinaryFile(path, kind, host); return {}; }
     const doc = h("div", { class: "doc" });
     host.append(doc);
     if (kind === "md") { renderMarkdown(text, doc, { base }); return {}; }
