@@ -66,6 +66,7 @@ WEB_SEARCH_USD = 0.01        # per search request
 FALLBACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,31}$")
 
+TOUR_LOGINS = 5              # show the Walkthrough button on this many first logins
 _lock = threading.RLock()    # guards the JSON stores below
 _busy = {}                   # user -> threading.Event (cancel flag) while generating
 
@@ -1246,6 +1247,9 @@ class Handler(BaseHTTPRequestHandler):
                                    "models": [{"id": m, "label": MODELS[m]["label"]} for m in allowed_models(u)],
                                    "spent": round(spent(u), 4), "cap": cap,
                                    "about": u.get("about", ""),
+                                   "logins": int(u.get("logins", 0)),
+                                   "tour": int(u.get("logins", 0)) <= TOUR_LOGINS,
+                                   "tour_seen": bool(u.get("tour_seen")),
                                    "key": bool(secret("anthropic_api_key"))})
         if not name:
             return self.send(401, {"error": "login"})
@@ -1354,6 +1358,12 @@ class Handler(BaseHTTPRequestHandler):
                 save_users(us)
                 return self.send(200, {"ok": True, "about": us[name].get("about", ""),
                                        "display": us[name].get("display") or name})
+        if path == "/api/tour":                  # the walkthrough was opened once
+            with _lock:
+                us = users()
+                us[name]["tour_seen"] = True
+                save_users(us)
+            return self.send(200, {"ok": True})
         if path == "/api/file":                  # the learner editing in the reader
             try:
                 p = safe_path(name, b.get("path"))
@@ -1434,6 +1444,10 @@ class Handler(BaseHTTPRequestHandler):
         u = users().get(name)
         if u and not u.get("disabled") and check_pw(u, str(b.get("pass", ""))):
             self._fails.pop(key, None)
+            with _lock:                          # first logins get the walkthrough
+                us = users()
+                us[name]["logins"] = int(us[name].get("logins", 0)) + 1
+                save_users(us)
             tok = new_session(name)
             secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" or \
                 self.headers.get("Tailscale-Funnel-Request") else ""
@@ -1595,7 +1609,8 @@ def admin_state():
                      "model": user_model(u), "models": u.get("models") or "all",
                      "cap": float(u.get("cap_usd", config()["default_cap_usd"])),
                      "spent": round(spent(u), 4), "disabled": bool(u.get("disabled")),
-                     "created": u.get("created", 0), "chats": len(list(chats_dir(n).glob("*.json")))})
+                     "created": u.get("created", 0), "chats": len(list(chats_dir(n).glob("*.json"))),
+                     "logins": int(u.get("logins", 0))})
     return {"users": rows, "config": config(),
             "key": (key[:10] + "…" + key[-4:]) if key else "",
             "models": [{"id": m, **{k: v for k, v in p.items()}} for m, p in MODELS.items()],

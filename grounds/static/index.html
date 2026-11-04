@@ -46,6 +46,7 @@
   <header class="top">
     <div class="brand"><span class="logo"></span><span class="brand-name">Learning Grounds</span></div>
     <div class="top-right">
+      <button id="tour-btn" class="btn small tour-btn" hidden title="A short tour of what everything here is for"><span aria-hidden="true">🧭</span><span class="tour-label">Walkthrough</span></button>
       <button id="hello" class="hello" title="About me: tell your teacher who you are" aria-label="Edit about me"></button>
       <button id="theme-btn" class="icon-btn" title="Light or dark" aria-label="Switch light or dark"></button>
       <button id="logout-btn" class="btn ghost small">Log out</button>
@@ -142,6 +143,20 @@
       <button type="submit" class="btn primary">Save</button>
     </div>
   </form>
+</div>
+<div id="tour" class="tour" hidden>
+  <div id="tour-spot" class="tour-spot"></div>
+  <div id="tour-card" class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title">
+    <div class="tour-step" id="tour-step"></div>
+    <h3 id="tour-title"></h3>
+    <div id="tour-text" class="tour-text"></div>
+    <div class="row gap-s tour-nav">
+      <button type="button" id="tour-skip" class="btn ghost small">Close</button>
+      <span class="grow"></span>
+      <button type="button" id="tour-back" class="btn small">Back</button>
+      <button type="button" id="tour-next" class="btn primary small">Next</button>
+    </div>
+  </div>
 </div>
 <input id="tree-upload-input" type="file" multiple hidden>
 <div id="drop-hint" class="drop-hint" hidden><div>Drop files to send them to your teacher</div></div>

@@ -126,6 +126,7 @@
   };
   $("logout-btn").onclick = async () => {
     try { await fetch("api/logout", { method: "POST", credentials: "same-origin" }); } catch (e) { /* ignore */ }
+    endTour(false);
     S.me = null; S.cache.clear(); S.open = []; S.active = null; S.chatId = null; clearPending();
     $("messages").replaceChildren(); $("reader").replaceChildren(); $("tabs").replaceChildren();
     showLogin();
@@ -954,6 +955,118 @@
     drawKeyWarning();
   }
 
+  // ---- walkthrough (shown on a learner's first logins) ------------------------------
+  // Each step points at one part of the app and says what it is for. On a phone
+  // the three panes are separate tabs, so a step can switch pane and point at the
+  // bottom tab instead of the whole screen.
+  const TOUR = [
+    { title: "Welcome to Learning Grounds 👋",
+      html: "<p>This is your own place to learn anything. An AI teacher explains things, makes lessons, quizzes and flashcards for you, and keeps them all here.</p><p>This walkthrough shows what each part of the screen is for. It takes about a minute.</p>" },
+    { pane: "chat", target: "#pane-chat", mtarget: '#bottom-tabs [data-pane="chat"]', title: "💬 Chat: talk to your teacher",
+      html: "<p>Everything starts here. Write what you want to learn, or what your homework or test is about, like you would to a real teacher.</p><span class=\"eg\">Explain fractions to me with examples.</span><span class=\"eg\">I have a biology test on Friday about cells. Help me get ready.</span><p style=\"margin-top:.55em\">The teacher answers here, and when a lesson is worth keeping it saves it into your Topics.</p>" },
+    { pane: "chat", target: "#composer", title: "📎 Send your schoolwork",
+      html: "<p>Type your message and press <b>Send</b>.</p><ul><li><b>📎</b> attaches worksheets, PDFs, Word documents or pictures.</li><li><b>📷</b> on a phone takes a photo of a page in your notebook or textbook.</li><li>On a computer you can also drag files onto the window.</li></ul><p>The teacher reads them and can explain, check your answers, or make practice from them.</p>" },
+    { pane: "chat", target: ".chat-head", title: "🗂 Chats, teacher and budget",
+      html: "<ul><li>The top list holds all your <b>chats</b>. Every conversation is saved, so you can come back to it.</li><li><b>+ New</b> starts a fresh chat. Use one chat per subject or task.</li><li>🎓 picks which AI <b>teacher</b> answers you.</li><li>The bar shows how much of this month's <b>budget</b> you have used. When it is full, ask whoever runs the site.</li></ul>" },
+    { pane: "topics", target: "#pane-topics", mtarget: '#bottom-tabs [data-pane="topics"]', title: "📚 Topics: your library",
+      html: "<p>Everything the teacher makes for you lands here, sorted into subjects (one folder per topic).</p><ul><li>Click a topic to open or close it, click a file to read it.</li><li><b>+ Topic</b> makes a new subject folder.</li><li><b>⬆</b> uploads your own files, like school documents or photos.</li><li><b>⋯</b> next to a file lets you rename, move or delete it.</li></ul>" },
+    { pane: "reader", target: "#pane-reader", mtarget: '#bottom-tabs [data-pane="reader"]', title: "📖 Reader: where you learn",
+      html: "<p>Files you open from Topics show up here, each in its own tab at the top.</p><p>Lessons are not just text. They can have math, diagrams, graphs you can drag, <b>quizzes</b> that check your answers, <b>flashcards</b> to flip, and small labs to try things out.</p><p><b>Edit</b> lets you change or add to a file yourself, then <b>Save</b>.</p>" },
+    { target: "#hello", title: "🙂 About me",
+      html: "<p>Click your name to tell the teacher about yourself: your age or class, your school, what you like, what is hard for you, and which language you want to learn in.</p><p>The more it knows, the better the lessons fit you. Do this first!</p>" },
+    { target: "#tour-btn", title: "🧭 Need this again?",
+      html: "" },  // text filled in from the login count
+    { pane: "chat", title: "You are ready 🎉",
+      html: "<p>A good way to start: fill in <b>About me</b>, then ask your teacher something in the chat. It will make your first topic for you.</p>", last: true },
+  ];
+  const T = { i: 0, on: false };
+
+  function tourText(st) {
+    if (st.mtarget && mobile())
+      return st.html + "<p>On a phone, tap <b>" + document.querySelector(st.mtarget).textContent + "</b> at the bottom to get here.</p>";
+    if (st.target !== "#tour-btn") return st.html;
+    const left = Math.max(0, 5 - (+S.me.logins || 0));
+    return "<p>This <b>🧭 Walkthrough</b> button stays up here for your first 5 logins" +
+      (left ? " (" + left + " more after this one)" : "") + ", so you can run the tour again any time.</p>";
+  }
+  function tourTarget(st) {
+    const sel = mobile() && st.mtarget ? st.mtarget : st.target;
+    const el = sel && document.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r.width && r.height ? r : null;
+  }
+  function placeTour() {
+    if (!T.on) return;
+    const st = TOUR[T.i], spot = $("tour-spot"), card = $("tour-card");
+    const r = tourTarget(st);
+    const W = innerWidth, H = innerHeight, cw = card.offsetWidth, ch = card.offsetHeight, pad = 6, gap = 14;
+    if (!r) {
+      spot.classList.add("none");
+      card.style.left = Math.max(16, (W - cw) / 2) + "px";
+      card.style.top = Math.max(16, (H - ch) / 2) + "px";
+      return;
+    }
+    spot.classList.remove("none");
+    const x = Math.max(4, r.left - pad), y = Math.max(4, r.top - pad);
+    spot.style.left = x + "px"; spot.style.top = y + "px";
+    spot.style.width = Math.min(W - 8, r.right + pad) - x + "px";
+    spot.style.height = Math.min(H - 8, r.bottom + pad) - y + "px";
+    // Beside the target if there is room (wide panes), else below or above it,
+    // else (the target fills the screen) over its middle.
+    let left, top;
+    if (r.right + gap + cw + 16 <= W) { left = r.right + gap; top = r.top; }
+    else if (r.left - gap - cw >= 16) { left = r.left - gap - cw; top = r.top; }
+    else if (r.bottom + gap + ch + 16 <= H) { top = r.bottom + gap; left = r.left + r.width / 2 - cw / 2; }
+    else if (r.top - gap - ch >= 16) { top = r.top - gap - ch; left = r.left + r.width / 2 - cw / 2; }
+    else { top = (H - ch) / 2; left = (W - cw) / 2; }
+    card.style.left = Math.max(16, Math.min(W - cw - 16, left)) + "px";
+    card.style.top = Math.max(16, Math.min(H - ch - 16, top)) + "px";
+  }
+  function showTourStep(i) {
+    T.i = Math.max(0, Math.min(TOUR.length - 1, i));
+    const st = TOUR[T.i];
+    if (st.pane && mobile()) setPane(st.pane);
+    $("tour-step").textContent = "Step " + (T.i + 1) + " of " + TOUR.length;
+    $("tour-title").textContent = st.title;
+    $("tour-text").innerHTML = tourText(st);   // our own fixed strings
+    $("tour-back").hidden = T.i === 0;
+    $("tour-next").textContent = st.last ? "Start learning" : T.i === 0 ? "Show me" : "Next";
+    $("tour-skip").textContent = st.last ? "Close" : "Skip tour";
+    requestAnimationFrame(() => { placeTour(); $("tour-next").focus(); });
+  }
+  function startTour() {
+    if (!S.me) return;
+    $("menu").hidden = true; $("modal").hidden = true; $("profile").hidden = true;
+    $("tour-btn").classList.remove("pulse");
+    T.on = true; $("tour").hidden = false;
+    showTourStep(0);
+    if (!S.me.tour_seen) { S.me.tour_seen = true; api("api/tour", {}).catch(() => {}); }
+  }
+  function endTour(go) {
+    if (!T.on) return;
+    T.on = false; $("tour").hidden = true;
+    if (go) { setPane("chat"); setTimeout(() => $("input").focus(), 50); }
+  }
+  $("tour-btn").onclick = startTour;
+  $("tour-next").onclick = () => (TOUR[T.i].last ? endTour(true) : showTourStep(T.i + 1));
+  $("tour-back").onclick = () => showTourStep(T.i - 1);
+  $("tour-skip").onclick = () => endTour(false);
+  document.addEventListener("keydown", (e) => {
+    if (!T.on) return;
+    if (e.key === "Escape") endTour(false);
+    else if (e.key === "ArrowRight") $("tour-next").click();
+    else if (e.key === "ArrowLeft" && T.i > 0) showTourStep(T.i - 1);
+  });
+  addEventListener("resize", placeTour);
+  function drawTour() {
+    const show = !!(S.me && S.me.tour);
+    $("tour-btn").hidden = !show;
+    if (!show) return endTour(false);
+    if (!S.me.tour_seen) setTimeout(startTour, 400);   // the very first time, open it
+    else $("tour-btn").classList.add("pulse");
+  }
+
   // ---- boot -------------------------------------------------------------------------
   async function boot() {
     applyTheme();
@@ -972,6 +1085,7 @@
     S.active = S.open.includes(tabs.active) ? tabs.active : S.open[S.open.length - 1] || null;
     drawTabs(); drawTree(); renderActive();
     loadChat();
+    drawTour();
   }
 
   function start() {
