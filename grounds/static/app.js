@@ -20,6 +20,7 @@
     chatId: null,
     busy: false,
     pane: "chat",
+    pending: [],             // attachments waiting in the composer
   };
   const mobile = () => matchMedia("(max-width: 900px)").matches;
 
@@ -125,7 +126,7 @@
   };
   $("logout-btn").onclick = async () => {
     try { await fetch("api/logout", { method: "POST", credentials: "same-origin" }); } catch (e) { /* ignore */ }
-    S.me = null; S.cache.clear(); S.open = []; S.active = null; S.chatId = null;
+    S.me = null; S.cache.clear(); S.open = []; S.active = null; S.chatId = null; clearPending();
     $("messages").replaceChildren(); $("reader").replaceChildren(); $("tabs").replaceChildren();
     showLogin();
   };
@@ -227,6 +228,7 @@
     menu(btn, [
       { label: "📝 New file here", fn: () => newFile(n.path) },
       { label: "📁 New folder here", fn: () => newFolder(n.path) },
+      { label: "⬆️ Upload files here", fn: () => pickTreeUpload(n.path) },
       { label: "✏️ Rename", fn: () => renamePath(n) },
       { label: "🗑 Delete" + (isTopic ? " topic" : " folder"), danger: true, fn: () => deletePath(n) },
     ]);
@@ -234,6 +236,7 @@
   function fileMenu(btn, n) {
     menu(btn, [
       { label: "📖 Open", fn: () => openFile(n.path) },
+      { label: "💬 Ask teacher about it", fn: () => attachExisting(n.path) },
       { label: "✏️ Rename", fn: () => renamePath(n) },
       { label: "🗑 Delete", danger: true, fn: () => deletePath(n) },
     ]);
@@ -355,7 +358,7 @@
     $("reader-path").textContent = path;
     $("edit-btn").hidden = S.editing || !LG.editable(kind);
     $("save-btn").hidden = $("cancel-btn").hidden = !S.editing;
-    if (kind === "image") { body.replaceChildren(); LG.renderFile(path, "", body); return; }
+    if (LG.isBinaryKind(kind)) { body.replaceChildren(); body.dataset.path = path; LG.renderFile(path, "", body); return; }
     let text = S.cache.get(path);
     if (text == null) {
       if (!body.firstChild) body.append(h("div", { class: "boot", style: "position:static;padding:40px" }, h("div", { class: "spinner" })));
@@ -396,6 +399,8 @@
       h("div", { class: "big-emoji", text: "🌱" }),
       h("h1", { text: "Hi" + (name ? " " + name : "") + "!" }),
       h("p", { class: "muted", text: "This is your learning space. Tell your teacher what you want to learn. It will make notes, quizzes, flashcards and practice labs for you, and they show up here." }),
+      h("p", { class: "muted", text: "Got homework or school papers? Press 📎 in the chat (or 📷 on a phone) to send a photo, PDF or Word file, and your teacher will look at it with you." }),
+      S.me && !S.me.about ? h("button", { class: "btn", onclick: openProfile }, "✏️ Tell your teacher about you") : null,
       h("div", { class: "starters" }, starters.map(([e, t, msg]) =>
         h("button", { class: "starter", onclick: () => { if (mobile()) setPane("chat"); send(msg); } }, h("b", { text: e + " " + t }), h("span", { class: "muted", text: msg })))));
   }
@@ -472,7 +477,7 @@
     if (!items.length) box.append(chatEmpty());
     items.forEach((it, i) => {
       const last = i === items.length - 1;
-      if (it.role === "user") addUser(it.text);
+      if (it.role === "user") addUser(it.text, it.attachments);
       else if (it.role === "assistant") addAssistant(it.text);
       else if (it.role === "tool") addTool(it.name, it.detail, true);
       else if (it.role === "quiz") addQuiz(it.questions, !last || d.busy);
@@ -495,9 +500,19 @@
   function scrollDown(force) { const b = $("messages"); if (force || nearBottom()) b.scrollTop = b.scrollHeight; }
   function clearEmpty() { const e = $("messages").querySelector(".chat-empty"); if (e) e.remove(); }
 
-  function addUser(text) {
+  function addUser(text, atts) {
     clearEmpty();
-    const m = h("div", { class: "msg user" }, h("div", { class: "bubble", text }));
+    const m = h("div", { class: "msg user" });
+    if (atts && atts.length) {
+      const row = h("div", { class: "atts" });
+      for (const p of atts) {
+        const open = () => { openFile(p); if (mobile()) setPane("reader"); };
+        if (LG.kindOf(p) === "image") row.append(h("img", { class: "big", src: LG.fileUrl(p), alt: p.split("/").pop(), title: p, loading: "lazy", onclick: open }));
+        else row.append(h("span", { class: "chip", title: p, onclick: open }, h("span", { class: "thumb", text: LG.ICON[LG.kindOf(p)] || "📄" }), h("span", { class: "nm", text: p.split("/").pop() })));
+      }
+      m.append(row);
+    }
+    if (text) m.append(h("div", { class: "bubble", text }));
     $("messages").append(m);
     return m;
   }
@@ -574,9 +589,10 @@
     $("chat-pick").disabled = b;
   }
 
-  async function send(text, display) {
+  async function send(text, display, atts) {
     text = String(text || "").trim();
-    if (!text) return;
+    atts = (atts || []).filter(Boolean);
+    if (!text && !atts.length) return;
     if (S.busy) { toast("Wait until the teacher finishes, or press Stop."); return; }
     setBusy(true);
     try {
@@ -589,7 +605,7 @@
       }
     } catch (e) { setBusy(false); toast(e.message); return; }
     clearTimeout(pollTm);
-    addUser(display || text);
+    addUser(display || text, atts);
     scrollDown(true);
     const thinking = h("div", { class: "thinking" }, h("span", { class: "mini-spin" }), "Thinking…");
     $("messages").append(thinking);
@@ -655,7 +671,7 @@
     };
     try {
       const r = await fetch("api/send", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat: S.chatId, text, display: display || undefined, model: S.me.model }) });
+        body: JSON.stringify({ chat: S.chatId, text, display: display || undefined, model: S.me.model, attachments: atts.length ? atts : undefined }) });
       if (r.status === 401) { showLogin(); return; }
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => ({}));
@@ -689,7 +705,7 @@
       refreshMe().catch(() => {});
     }
   }
-  LG.ctx.send = (text, display) => { if (mobile()) setPane("chat"); send(text, display); };
+  LG.ctx.send = (text, display, atts) => { if (mobile()) setPane("chat"); send(text, display, atts); };
   LG.ctx.open = (p) => { openFile(p); };
   LG.ctx.toast = toast;
 
@@ -718,9 +734,188 @@
   $("composer").onsubmit = (e) => {
     e.preventDefault();
     const t = input.value.trim();
-    if (!t || S.busy) return;
+    if (S.busy) return;
+    if (S.pending.some((a) => a.status === "up")) { toast("Wait a moment, still uploading…"); return; }
+    const atts = S.pending.filter((a) => a.status === "ok").map((a) => a.path);
+    if (!t && !atts.length) return;
     input.value = ""; grow();
-    send(t);
+    clearPending();
+    send(t, null, atts);
+  };
+
+  // ---- attachments + uploads ----------------------------------------------------------
+  // Photos are shrunk in the browser first: a phone photo is 3-12 MB, the
+  // teacher sees at most ~2500 px anyway, and small files upload fast on mobile.
+  async function shrinkImage(file) {
+    const type = (file.type || "").toLowerCase();
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) return file;
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const MAX = 2000, big = Math.max(bmp.width, bmp.height);
+      const heic = /hei[cf]/.test(type) || /\.hei[cf]$/i.test(file.name);
+      if (big <= MAX && file.size < 1.5e6 && !heic) { bmp.close && bmp.close(); return file; }
+      const k = Math.min(1, MAX / big);
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      const g = c.getContext("2d");
+      const keepPng = type === "image/png" && big <= MAX;
+      if (!keepPng) { g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); }
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close && bmp.close();
+      const out = await new Promise((res) => c.toBlob(res, keepPng ? "image/png" : "image/jpeg", 0.85));
+      if (!out || (out.size >= file.size && !heic)) return file;
+      const base = (file.name || "photo").replace(/\.[^.]+$/, "");
+      return new File([out], base + (keepPng ? ".png" : ".jpg"), { type: out.type });
+    } catch (e) {
+      return file;                      // can't decode here (e.g. HEIC on Chrome): send as is
+    }
+  }
+  function photoName(file) {
+    if (file.name && !/^image\.(jpe?g|png)$/i.test(file.name)) return file.name;
+    const d = new Date(), p = (n) => String(n).padStart(2, "0");
+    return "photo " + d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + "." + p(d.getMinutes()) + "." + p(d.getSeconds()) + ".jpg";
+  }
+  function uploadFile(file, folder, onProgress) {
+    return new Promise((res, rej) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", "api/upload?folder=" + encodeURIComponent(folder || "Uploads") + "&name=" + encodeURIComponent(file.name || "file"));
+      x.withCredentials = true;
+      x.setRequestHeader("Content-Type", "application/octet-stream");
+      if (onProgress) x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+      x.onload = () => {
+        let d = {}; try { d = JSON.parse(x.responseText); } catch (e) { /* not json */ }
+        if (x.status === 401) { showLogin(); rej(new Error("Please log in again.")); }
+        else if (x.status >= 200 && x.status < 300 && d.path) res(d);
+        else rej(new Error(d.error || "Upload failed (" + x.status + ")"));
+      };
+      x.onerror = () => rej(new Error("Upload failed. Check the connection."));
+      x.send(file);
+    });
+  }
+  async function prepare(file, camera) {
+    let f = file;
+    if (camera || (file.type || "").startsWith("image/") || /\.hei[cf]$/i.test(file.name)) {
+      const named = camera ? new File([file], photoName(file), { type: file.type || "image/jpeg" }) : file;
+      f = await shrinkImage(named);
+    }
+    if (f.size > 40e6) throw new Error(f.name + " is too big (40 MB limit).");
+    return f;
+  }
+
+  function drawPending() {
+    const row = $("attach-row");
+    row.hidden = !S.pending.length;
+    row.replaceChildren(...S.pending.map((a) => {
+      const thumb = a.thumb ? h("img", { class: "thumb", src: a.thumb, alt: "" }) : h("span", { class: "thumb", text: LG.ICON[LG.kindOf(a.name)] || "📄" });
+      const kids = [thumb, h("span", { class: "nm", text: a.name, title: a.path || a.name })];
+      if (a.status === "up") { a.bar = h("progress", { max: "1", value: String(a.progress || 0) }); kids.push(a.bar); }
+      if (a.status === "bad") kids.push(h("span", { class: "small", text: "failed" }));
+      kids.push(h("button", { class: "x", type: "button", "aria-label": "Remove " + a.name, onclick: () => removePending(a) }, "×"));
+      return h("span", { class: "chip" + (a.status === "up" ? " busy" : "") + (a.status === "bad" ? " bad" : ""), title: a.error || a.path || a.name }, ...kids);
+    }));
+  }
+  function removePending(a) {
+    S.pending = S.pending.filter((x) => x !== a);
+    if (a.thumb && a.thumb.startsWith("blob:")) URL.revokeObjectURL(a.thumb);
+    drawPending();
+  }
+  function clearPending() {
+    S.pending.forEach((a) => { if (a.thumb && a.thumb.startsWith("blob:")) URL.revokeObjectURL(a.thumb); });
+    S.pending = []; drawPending();
+  }
+  async function attachFiles(files, camera) {
+    files = [...(files || [])];
+    if (!files.length) return;
+    if (mobile() && S.pane !== "chat") setPane("chat");
+    for (const file of files) {
+      if (S.pending.length >= 10) { toast("At most 10 files per message."); break; }
+      const a = { name: file.name || "file", status: "up", progress: 0 };
+      if ((file.type || "").startsWith("image/")) { try { a.thumb = URL.createObjectURL(file); } catch (e) { /* no preview */ } }
+      S.pending.push(a); drawPending();
+      (async () => {
+        try {
+          const f = await prepare(file, camera);
+          a.name = f.name;
+          const d = await uploadFile(f, "Uploads", (p) => { a.progress = p; if (a.bar) a.bar.value = p; });
+          a.path = d.path; a.name = d.path.split("/").pop(); a.status = "ok";
+        } catch (e) {
+          a.status = "bad"; a.error = e.message; toast(e.message, 4000);
+        }
+        drawPending();
+        onTreeChanged();
+      })();
+    }
+    $("input").focus();
+  }
+  function attachExisting(path) {
+    if (S.pending.some((a) => a.path === path)) return;
+    S.pending.push({ name: path.split("/").pop(), path, status: "ok", thumb: LG.kindOf(path) === "image" ? LG.fileUrl(path) : null });
+    drawPending();
+    if (mobile()) setPane("chat");
+    $("input").focus();
+  }
+  $("attach-btn").onclick = () => $("attach-input").click();
+  $("camera-btn").onclick = () => $("camera-input").click();
+  $("attach-input").onchange = (e) => { attachFiles(e.target.files, false); e.target.value = ""; };
+  $("camera-input").onchange = (e) => { attachFiles(e.target.files, true); e.target.value = ""; };
+  input.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData && e.clipboardData.files || [])];
+    if (files.length) { e.preventDefault(); attachFiles(files.map((f) => f.name && f.name !== "image.png" ? f : new File([f], photoName({}).replace(".jpg", ".png").replace("photo", "pasted"), { type: f.type })), false); }
+  });
+  // drag and drop anywhere: the files go to the chat
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  addEventListener("dragenter", (e) => { if (!hasFiles(e) || $("app").hidden) return; dragDepth++; $("drop-hint").hidden = false; });
+  addEventListener("dragleave", (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("drop-hint").hidden = true; });
+  addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+  addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth = 0; $("drop-hint").hidden = true;
+    if (!$("app").hidden) attachFiles(e.dataTransfer.files, false);
+  });
+
+  // uploads straight into a folder from the Topics pane
+  let treeUploadDir = "Uploads";
+  function pickTreeUpload(dir) { treeUploadDir = dir || "Uploads"; $("tree-upload-input").click(); }
+  $("upload-tree").onclick = () => pickTreeUpload("Uploads");
+  $("tree-upload-input").onchange = async (e) => {
+    const files = [...e.target.files]; e.target.value = "";
+    if (!files.length) return;
+    let last = null, n = 0;
+    toast("Uploading " + files.length + " file" + (files.length > 1 ? "s" : "") + "…", 60000);
+    for (const file of files) {
+      try { const f = await prepare(file, false); last = (await uploadFile(f, treeUploadDir)).path; n++; }
+      catch (err) { toast(err.message, 4000); }
+    }
+    if (n) toast("Uploaded " + n + " file" + (n > 1 ? "s" : "") + " ✓");
+    S.collapsed.delete(treeUploadDir);
+    await loadTree().catch(() => {});
+    if (last) { await openFile(last); if (mobile()) setPane("reader"); }
+  };
+
+  // ---- about me -----------------------------------------------------------------------
+  function openProfile() {
+    $("profile-display").value = S.me.display || "";
+    $("profile-about").value = S.me.about || "";
+    countAbout();
+    $("profile").hidden = false;
+    setTimeout(() => $("profile-about").focus(), 30);
+  }
+  function countAbout() { $("profile-count").textContent = $("profile-about").value.length + " / 2000"; }
+  $("profile-about").addEventListener("input", countAbout);
+  $("hello").onclick = openProfile;
+  $("profile-cancel").onclick = () => { $("profile").hidden = true; };
+  $("profile").onclick = (e) => { if (e.target === $("profile")) $("profile").hidden = true; };
+  $("profile").addEventListener("keydown", (e) => { if (e.key === "Escape") $("profile").hidden = true; });
+  $("profile-card").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const d = await api("api/about", { about: $("profile-about").value.trim(), display: $("profile-display").value.trim() });
+      S.me.about = d.about; S.me.display = d.display;
+      $("hello").textContent = "Hi, " + d.display + " 👋";
+      $("profile").hidden = true;
+      toast("Saved. Your teacher will use it from your next message ✓");
+    } catch (err) { toast(err.message); }
   };
 
   // ---- model + meter ----------------------------------------------------------------
