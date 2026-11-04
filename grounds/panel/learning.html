@@ -113,7 +113,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Learner</th><th>Teacher model</th><th>Allowed models</th><th>Monthly cap</th><th>This month</th><th>Chats</th><th></th></tr></thead>
+        <thead><tr><th>Learner</th><th>Teacher model</th><th>Allowed models</th><th>Monthly cap</th><th>This month</th><th>Chats · logins</th><th></th></tr></thead>
         <tbody id="users"></tbody>
       </table>
     </div>
@@ -328,7 +328,7 @@
         onclick: () => { if (confirm("Delete " + u.name + "? Their files move to the trash folder on the devbox.")) act("user/delete", { name: u.name }); } }));
 
     tr.append(who, h("td", {}, msel), h("td", {}, det), h("td", {}, h("span", { class: "dim" }, "$ "), cap), spend,
-      h("td", { class: "mono", text: u.chats }), h("td", {}, actions));
+      h("td", { class: "mono", text: u.chats + " · " + (u.logins || 0) }), h("td", {}, actions));
     return tr;
   }
 
